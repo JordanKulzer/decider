@@ -14,7 +14,7 @@ import {
 import { TextInput as PaperInput, useTheme } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "../lib/supabase";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 
 const SignUpScreen = ({ navigation }: { navigation: any }) => {
   const [email, setEmail] = useState("");
@@ -84,14 +84,24 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
 
     setError("");
     try {
-      const { error: signUpError } = await supabase.auth.signUp({
+      console.log("[SignUp] Attempting signup for:", email.trim());
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: { data: { username } },
       });
 
+      console.log("[SignUp] Response:", { data, error: signUpError });
+
       if (signUpError) throw signUpError;
+
+      // Check if user was created but needs email confirmation
+      if (data?.user && !data?.session) {
+        setError("Check your email for a confirmation link!");
+        return;
+      }
     } catch (err: any) {
+      console.error("[SignUp] Error:", err);
       if (
         err.message?.includes("User already registered") ||
         err.message?.includes("email")
@@ -100,7 +110,7 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
       } else if (err.message?.includes("password")) {
         setError("Password must be at least 6 characters.");
       } else {
-        setError("Signup failed. Try again.");
+        setError(`Signup failed: ${err.message || "Unknown error"}`);
       }
     }
   };

@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import { isDemoMode } from "./demoMode";
 import * as mock from "./mockData";
-import { Decision, DecisionMember, Constraint, DecisionOption, Vote, Result } from "../types/decisions";
+import { Decision, DecisionMember, Constraint, DecisionOption, Vote, Result, AdvanceVote, Comment } from "../types/decisions";
 
 export const fetchUserDecisions = async (userId: string) => {
   if (isDemoMode()) return mock.mockFetchUserDecisions(userId);
@@ -285,4 +285,263 @@ export const leaveDecision = async (
     .eq("user_id", userId);
 
   if (error) throw error;
+};
+
+export const revertPhase = async (
+  decisionId: string,
+  targetStatus: "constraints" | "options"
+) => {
+  if (isDemoMode()) return mock.mockRevertPhase(decisionId, targetStatus);
+
+  // If reverting to constraints, delete all options (which cascades to votes)
+  if (targetStatus === "constraints") {
+    const { error: optionsError } = await supabase
+      .from("options")
+      .delete()
+      .eq("decision_id", decisionId);
+    if (optionsError) throw optionsError;
+  }
+
+  // If reverting to options, delete all votes and reset has_voted flags
+  if (targetStatus === "options") {
+    const { error: votesError } = await supabase
+      .from("votes")
+      .delete()
+      .eq("decision_id", decisionId);
+    if (votesError) throw votesError;
+
+    const { error: membersError } = await supabase
+      .from("decision_members")
+      .update({ has_voted: false })
+      .eq("decision_id", decisionId);
+    if (membersError) throw membersError;
+
+    // Also delete results if any
+    const { error: resultsError } = await supabase
+      .from("results")
+      .delete()
+      .eq("decision_id", decisionId);
+    if (resultsError) throw resultsError;
+  }
+
+  // Update the status
+  const { error: statusError } = await supabase
+    .from("decisions")
+    .update({ status: targetStatus })
+    .eq("id", decisionId);
+
+  if (statusError) throw statusError;
+};
+
+// ─── ADVANCE VOTES ───
+
+export const fetchAdvanceVotes = async (
+  decisionId: string,
+  fromPhase: "constraints" | "options"
+): Promise<AdvanceVote[]> => {
+  if (isDemoMode()) return mock.mockFetchAdvanceVotes(decisionId, fromPhase);
+
+  const { data, error } = await supabase
+    .from("advance_votes")
+    .select(`
+      id, decision_id, user_id, from_phase, created_at,
+      users:user_id (username)
+    `)
+    .eq("decision_id", decisionId)
+    .eq("from_phase", fromPhase);
+
+  if (error) throw error;
+
+  return (data || []).map((v: any) => ({
+    id: v.id,
+    decision_id: v.decision_id,
+    user_id: v.user_id,
+    from_phase: v.from_phase,
+    created_at: v.created_at,
+    username: v.users?.username,
+  }));
+};
+
+export const submitAdvanceVote = async (
+  decisionId: string,
+  userId: string,
+  fromPhase: "constraints" | "options"
+) => {
+  if (isDemoMode()) return mock.mockSubmitAdvanceVote(decisionId, userId, fromPhase);
+
+  const { error } = await supabase
+    .from("advance_votes")
+    .insert([{ decision_id: decisionId, user_id: userId, from_phase: fromPhase }]);
+
+  if (error) throw error;
+};
+
+export const removeAdvanceVote = async (
+  decisionId: string,
+  userId: string,
+  fromPhase: "constraints" | "options"
+) => {
+  if (isDemoMode()) return mock.mockRemoveAdvanceVote(decisionId, userId, fromPhase);
+
+  const { error } = await supabase
+    .from("advance_votes")
+    .delete()
+    .eq("decision_id", decisionId)
+    .eq("user_id", userId)
+    .eq("from_phase", fromPhase);
+
+  if (error) throw error;
+};
+
+export const clearAdvanceVotes = async (
+  decisionId: string,
+  fromPhase: "constraints" | "options"
+) => {
+  if (isDemoMode()) return mock.mockClearAdvanceVotes(decisionId, fromPhase);
+
+  const { error } = await supabase
+    .from("advance_votes")
+    .delete()
+    .eq("decision_id", decisionId)
+    .eq("from_phase", fromPhase);
+
+  if (error) throw error;
+};
+
+// ─── COMMENTS ───
+
+export const fetchComments = async (
+  decisionId: string
+): Promise<Comment[]> => {
+  if (isDemoMode()) return mock.mockFetchComments(decisionId);
+
+  const { data, error } = await supabase
+    .from("comments")
+    .select(`
+      id, decision_id, user_id, option_id, constraint_id, parent_id, content, created_at,
+      users:user_id (username)
+    `)
+    .eq("decision_id", decisionId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+
+  const comments = (data || []).map((c: any) => ({
+    id: c.id,
+    decision_id: c.decision_id,
+    user_id: c.user_id,
+    option_id: c.option_id,
+    constraint_id: c.constraint_id,
+    parent_id: c.parent_id,
+    content: c.content,
+    created_at: c.created_at,
+    username: c.users?.username,
+  }));
+
+  // Organize into tree structure
+  const commentMap = new Map<string, Comment>();
+  const rootComments: Comment[] = [];
+
+  comments.forEach((c: Comment) => {
+    c.replies = [];
+    commentMap.set(c.id, c);
+  });
+
+  comments.forEach((c: Comment) => {
+    if (c.parent_id && commentMap.has(c.parent_id)) {
+      commentMap.get(c.parent_id)!.replies!.push(c);
+    } else if (!c.parent_id) {
+      rootComments.push(c);
+    }
+  });
+
+  return rootComments;
+};
+
+export const addComment = async (
+  decisionId: string,
+  userId: string,
+  content: string,
+  optionId: string | null,
+  constraintId: string | null,
+  parentId: string | null
+) => {
+  if (isDemoMode()) return mock.mockAddComment(decisionId, userId, content, optionId, constraintId, parentId);
+
+  const { data, error } = await supabase
+    .from("comments")
+    .insert([{
+      decision_id: decisionId,
+      user_id: userId,
+      content,
+      option_id: optionId,
+      constraint_id: constraintId,
+      parent_id: parentId,
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Comment;
+};
+
+export const removeComment = async (commentId: string) => {
+  if (isDemoMode()) return mock.mockRemoveComment(commentId);
+
+  const { error } = await supabase
+    .from("comments")
+    .delete()
+    .eq("id", commentId);
+
+  if (error) throw error;
+};
+
+// ─── MEMBER MANAGEMENT ───
+
+export const removeMember = async (
+  decisionId: string,
+  userIdToRemove: string
+) => {
+  if (isDemoMode()) return mock.mockRemoveMember(decisionId, userIdToRemove);
+
+  const { error } = await supabase
+    .from("decision_members")
+    .delete()
+    .eq("decision_id", decisionId)
+    .eq("user_id", userIdToRemove);
+
+  if (error) throw error;
+};
+
+export const transferOrganizer = async (
+  decisionId: string,
+  newOrganizerId: string
+) => {
+  if (isDemoMode()) return mock.mockTransferOrganizer(decisionId, newOrganizerId);
+
+  // Update the decision's created_by
+  const { error: decisionError } = await supabase
+    .from("decisions")
+    .update({ created_by: newOrganizerId })
+    .eq("id", decisionId);
+
+  if (decisionError) throw decisionError;
+
+  // Set old organizer to member
+  const { error: oldOrgError } = await supabase
+    .from("decision_members")
+    .update({ role: "member" })
+    .eq("decision_id", decisionId)
+    .eq("role", "organizer");
+
+  if (oldOrgError) throw oldOrgError;
+
+  // Set new organizer
+  const { error: newOrgError } = await supabase
+    .from("decision_members")
+    .update({ role: "organizer" })
+    .eq("decision_id", decisionId)
+    .eq("user_id", newOrganizerId);
+
+  if (newOrgError) throw newOrgError;
 };

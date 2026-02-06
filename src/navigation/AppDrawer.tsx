@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import HomeScreen from "../screens/HomeScreen";
 import * as Linking from "expo-linking";
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Modal, Portal, Button, useTheme } from "react-native-paper";
 import { supabase } from "../lib/supabase";
 import { isDemoMode } from "../lib/demoMode";
@@ -102,7 +102,7 @@ const AppDrawerContent = ({
   };
 
   const renderItemWithIcon = (
-    iconName: string,
+    iconName: React.ComponentProps<typeof MaterialCommunityIcons>["name"],
     label: string,
     onPress?: () => void,
     labelColor = theme.colors.onBackground

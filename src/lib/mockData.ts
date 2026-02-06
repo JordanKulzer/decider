@@ -645,3 +645,236 @@ export const mockCreateDecision = async (
   ALL_RESULTS[newDecision.id] = [];
   return newDecision;
 };
+
+export const mockRevertPhase = async (
+  decisionId: string,
+  targetStatus: "constraints" | "options"
+) => {
+  const d = ALL_DECISIONS[decisionId];
+  if (!d) return;
+
+  // If reverting to constraints, clear options
+  if (targetStatus === "constraints") {
+    ALL_OPTIONS[decisionId] = [];
+    ALL_VOTES[decisionId] = [];
+    ALL_RESULTS[decisionId] = [];
+  }
+
+  // If reverting to options, clear votes and reset has_voted
+  if (targetStatus === "options") {
+    ALL_VOTES[decisionId] = [];
+    ALL_RESULTS[decisionId] = [];
+    const members = ALL_MEMBERS[decisionId] || [];
+    members.forEach((m) => (m.has_voted = false));
+  }
+
+  // Update status
+  (d as any).status = targetStatus;
+};
+
+// ─── ADVANCE VOTES (mock) ───
+
+interface AdvanceVote {
+  id: string;
+  decision_id: string;
+  user_id: string;
+  from_phase: "constraints" | "options";
+  created_at: string;
+  username?: string;
+}
+
+const ALL_ADVANCE_VOTES: Record<string, AdvanceVote[]> = {
+  "demo-decision-001": [],
+  "demo-decision-002": [],
+  "demo-decision-003": [],
+  "demo-decision-004": [],
+};
+
+export const mockFetchAdvanceVotes = async (
+  decisionId: string,
+  fromPhase: "constraints" | "options"
+): Promise<AdvanceVote[]> => {
+  return (ALL_ADVANCE_VOTES[decisionId] || []).filter(
+    (v) => v.from_phase === fromPhase
+  );
+};
+
+export const mockSubmitAdvanceVote = async (
+  decisionId: string,
+  userId: string,
+  fromPhase: "constraints" | "options"
+) => {
+  if (!ALL_ADVANCE_VOTES[decisionId]) ALL_ADVANCE_VOTES[decisionId] = [];
+
+  // Check if already voted
+  const existing = ALL_ADVANCE_VOTES[decisionId].find(
+    (v) => v.user_id === userId && v.from_phase === fromPhase
+  );
+  if (existing) return;
+
+  ALL_ADVANCE_VOTES[decisionId].push({
+    id: `av-demo-${Date.now()}`,
+    decision_id: decisionId,
+    user_id: userId,
+    from_phase: fromPhase,
+    created_at: new Date().toISOString(),
+    username: "demo_user",
+  });
+};
+
+export const mockRemoveAdvanceVote = async (
+  decisionId: string,
+  userId: string,
+  fromPhase: "constraints" | "options"
+) => {
+  if (ALL_ADVANCE_VOTES[decisionId]) {
+    ALL_ADVANCE_VOTES[decisionId] = ALL_ADVANCE_VOTES[decisionId].filter(
+      (v) => !(v.user_id === userId && v.from_phase === fromPhase)
+    );
+  }
+};
+
+export const mockClearAdvanceVotes = async (
+  decisionId: string,
+  fromPhase: "constraints" | "options"
+) => {
+  if (ALL_ADVANCE_VOTES[decisionId]) {
+    ALL_ADVANCE_VOTES[decisionId] = ALL_ADVANCE_VOTES[decisionId].filter(
+      (v) => v.from_phase !== fromPhase
+    );
+  }
+};
+
+// ─── COMMENTS (mock) ───
+
+interface Comment {
+  id: string;
+  decision_id: string;
+  user_id: string;
+  option_id: string | null;
+  constraint_id: string | null;
+  parent_id: string | null;
+  content: string;
+  created_at: string;
+  username?: string;
+  replies?: Comment[];
+}
+
+const ALL_COMMENTS: Record<string, Comment[]> = {
+  "demo-decision-001": [],
+  "demo-decision-002": [
+    {
+      id: "cmt-001",
+      decision_id: "demo-decision-002",
+      user_id: OTHER_USER_1,
+      option_id: "opt-001",
+      constraint_id: null,
+      parent_id: null,
+      content: "This cabin looks amazing! Has anyone been there before?",
+      created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      username: "alex_m",
+    },
+    {
+      id: "cmt-002",
+      decision_id: "demo-decision-002",
+      user_id: OTHER_USER_2,
+      option_id: "opt-001",
+      constraint_id: null,
+      parent_id: "cmt-001",
+      content: "Yes! I went last summer. It's beautiful.",
+      created_at: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+      username: "jordan_k",
+    },
+  ],
+  "demo-decision-003": [],
+  "demo-decision-004": [],
+};
+
+export const mockFetchComments = async (decisionId: string): Promise<Comment[]> => {
+  const comments = ALL_COMMENTS[decisionId] || [];
+
+  // Build tree structure
+  const commentMap = new Map<string, Comment>();
+  const rootComments: Comment[] = [];
+
+  comments.forEach((c) => {
+    const copy = { ...c, replies: [] };
+    commentMap.set(c.id, copy);
+  });
+
+  comments.forEach((c) => {
+    const copy = commentMap.get(c.id)!;
+    if (c.parent_id && commentMap.has(c.parent_id)) {
+      commentMap.get(c.parent_id)!.replies!.push(copy);
+    } else if (!c.parent_id) {
+      rootComments.push(copy);
+    }
+  });
+
+  return rootComments;
+};
+
+export const mockAddComment = async (
+  decisionId: string,
+  userId: string,
+  content: string,
+  optionId: string | null,
+  constraintId: string | null,
+  parentId: string | null
+): Promise<Comment> => {
+  if (!ALL_COMMENTS[decisionId]) ALL_COMMENTS[decisionId] = [];
+
+  const comment: Comment = {
+    id: `cmt-demo-${Date.now()}`,
+    decision_id: decisionId,
+    user_id: userId,
+    option_id: optionId,
+    constraint_id: constraintId,
+    parent_id: parentId,
+    content,
+    created_at: new Date().toISOString(),
+    username: "demo_user",
+  };
+
+  ALL_COMMENTS[decisionId].push(comment);
+  return comment;
+};
+
+export const mockRemoveComment = async (commentId: string) => {
+  for (const key of Object.keys(ALL_COMMENTS)) {
+    ALL_COMMENTS[key] = ALL_COMMENTS[key].filter((c) => c.id !== commentId);
+  }
+};
+
+// ─── MEMBER MANAGEMENT (mock) ───
+
+export const mockRemoveMember = async (
+  decisionId: string,
+  userIdToRemove: string
+) => {
+  if (ALL_MEMBERS[decisionId]) {
+    ALL_MEMBERS[decisionId] = ALL_MEMBERS[decisionId].filter(
+      (m) => m.user_id !== userIdToRemove
+    );
+  }
+};
+
+export const mockTransferOrganizer = async (
+  decisionId: string,
+  newOrganizerId: string
+) => {
+  const members = ALL_MEMBERS[decisionId] || [];
+
+  // Set old organizer to member
+  members.forEach((m) => {
+    if (m.role === "organizer") m.role = "member";
+  });
+
+  // Set new organizer
+  const newOrg = members.find((m) => m.user_id === newOrganizerId);
+  if (newOrg) newOrg.role = "organizer";
+
+  // Update decision created_by
+  const decision = ALL_DECISIONS[decisionId];
+  if (decision) (decision as any).created_by = newOrganizerId;
+};

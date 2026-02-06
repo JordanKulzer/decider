@@ -26,7 +26,7 @@ import DecisionDetailScreen from "./src/screens/DecisionDetailScreen";
 import JoinDecisionScreen from "./src/screens/JoinDecisionScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import HeaderLogo from "./src/components/HeaderLogo";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import { Provider as PaperProvider } from "react-native-paper";
 import Toast from "react-native-toast-message";
 import { getToastConfig } from "./src/components/ToastConfig";

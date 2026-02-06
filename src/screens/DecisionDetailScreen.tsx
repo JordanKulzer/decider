@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -6,11 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { TextInput as PaperInput, useTheme } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect, useRoute } from "@react-navigation/native";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { useFocusEffect, useRoute, useNavigation } from "@react-navigation/native";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import * as Clipboard from "expo-clipboard";
 import { supabase } from "../lib/supabase";
@@ -22,21 +23,28 @@ import {
   fetchOptions,
   fetchVotes,
   fetchResults,
+  fetchComments,
   addConstraint,
   removeConstraint,
   addOption,
   removeOption,
   advancePhase,
+  revertPhase,
+  clearAdvanceVotes,
 } from "../lib/decisions";
 import { validateOptionAgainstConstraints } from "../utils/constraintValidation";
 import { formatLockTime } from "../utils/dateDisplay";
 import PhaseIndicator from "../components/PhaseIndicator";
 import ConstraintInput from "../components/ConstraintInput";
 import OptionCard from "../components/OptionCard";
-import MemberList from "../components/MemberList";
 import CountdownTimer from "../components/CountdownTimer";
 import VotingInterface from "../components/VotingInterface";
 import ResultsView from "../components/ResultsView";
+import ConstraintsSummary from "../components/ConstraintsSummary";
+import AdvanceVoteButton from "../components/AdvanceVoteButton";
+import CommentSection from "../components/CommentSection";
+import OrganizerMenu from "../components/OrganizerMenu";
+import MembersButton from "../components/MembersButton";
 import type {
   Decision,
   DecisionMember,
@@ -45,11 +53,13 @@ import type {
   Vote,
   Result,
   ConstraintType,
+  Comment,
 } from "../types/decisions";
 
 const DecisionDetailScreen = () => {
   const theme = useTheme();
   const route = useRoute<any>();
+  const navigation = useNavigation();
   const { decisionId } = route.params;
 
   const [decision, setDecision] = useState<Decision | null>(null);
@@ -58,6 +68,7 @@ const DecisionDetailScreen = () => {
   const [options, setOptions] = useState<DecisionOption[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [results, setResults] = useState<Result[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -88,13 +99,14 @@ const DecisionDetailScreen = () => {
     setUserId(currentUserId);
 
     try {
-      const [d, m, c, o, v, r] = await Promise.all([
+      const [d, m, c, o, v, r, cmt] = await Promise.all([
         fetchDecisionDetail(decisionId),
         fetchDecisionMembers(decisionId),
         fetchConstraints(decisionId),
         fetchOptions(decisionId),
         fetchVotes(decisionId),
         fetchResults(decisionId),
+        fetchComments(decisionId),
       ]);
       setDecision(d);
       setMembers(m);
@@ -102,6 +114,7 @@ const DecisionDetailScreen = () => {
       setOptions(o);
       setVotes(v);
       setResults(r);
+      setComments(cmt);
     } catch (err) {
       console.error("Error loading decision:", err);
     }
@@ -141,6 +154,7 @@ const DecisionDetailScreen = () => {
     try {
       await removeConstraint(constraintId);
       await loadData();
+      Toast.show({ type: "success", text1: "Constraint removed", position: "bottom" });
     } catch (err: any) {
       Toast.show({ type: "error", text1: "Failed to remove", position: "bottom" });
     }
@@ -182,6 +196,7 @@ const DecisionDetailScreen = () => {
     try {
       await removeOption(optionId);
       await loadData();
+      Toast.show({ type: "success", text1: "Option deleted", position: "bottom" });
     } catch (err: any) {
       Toast.show({ type: "error", text1: "Failed to remove", position: "bottom" });
     }
@@ -190,6 +205,11 @@ const DecisionDetailScreen = () => {
   const handleAdvancePhase = async (newStatus: string) => {
     if (!decision) return;
     try {
+      // Clear advance votes for the current phase
+      const currentPhase = decision.status as "constraints" | "options";
+      if (currentPhase === "constraints" || currentPhase === "options") {
+        await clearAdvanceVotes(decision.id, currentPhase);
+      }
       await advancePhase(decision.id, newStatus);
       await loadData();
       Toast.show({
@@ -222,6 +242,92 @@ const DecisionDetailScreen = () => {
     loadData();
   };
 
+  const handleRevertPhase = (targetStatus: "constraints" | "options") => {
+    if (!decision) return;
+
+    const warningMessages: Record<string, { title: string; message: string }> = {
+      constraints: {
+        title: "Go Back to Constraints?",
+        message: "This will delete ALL options that have been submitted. This action cannot be undone.",
+      },
+      options: {
+        title: "Go Back to Options?",
+        message: "This will delete ALL votes that have been cast and reset voting for everyone. This action cannot be undone.",
+      },
+    };
+
+    const { title, message } = warningMessages[targetStatus];
+
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Go Back",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await revertPhase(decision.id, targetStatus);
+            await loadData();
+            Toast.show({
+              type: "success",
+              text1: `Reverted to ${targetStatus} phase`,
+              position: "bottom",
+            });
+          } catch (err: any) {
+            Toast.show({
+              type: "error",
+              text1: "Failed to revert",
+              text2: err.message,
+              position: "bottom",
+            });
+          }
+        },
+      },
+    ]);
+  };
+
+  // Set up navigation header with members button and organizer menu
+  useLayoutEffect(() => {
+    if (!decision || !userId) {
+      navigation.setOptions({ headerRight: () => null });
+      return;
+    }
+
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          {isOrganizer ? (
+            <OrganizerMenu
+              decisionId={decision.id}
+              decisionTitle={decision.title}
+              currentPhase={decision.status}
+              members={members}
+              currentUserId={userId}
+              showVoteStatus={decision.status === "voting"}
+              onRevertToConstraints={() => handleRevertPhase("constraints")}
+              onRevertToOptions={() => handleRevertPhase("options")}
+              onAdvanceToOptions={() => handleAdvancePhase("options")}
+              onAdvanceToVoting={() => handleAdvancePhase("voting")}
+              onDeleted={() => navigation.goBack()}
+              onRenamed={loadData}
+              onMemberChanged={loadData}
+            />
+          ) : (
+            <MembersButton
+              members={members}
+              decisionId={decision.id}
+              decisionTitle={decision.title}
+              currentUserId={userId}
+              isOrganizer={false}
+              showVoteStatus={decision.status === "voting"}
+              onMemberChanged={loadData}
+              onLeft={() => navigation.goBack()}
+            />
+          )}
+        </View>
+      ),
+    });
+  }, [decision, userId, isOrganizer, members, navigation, loadData]);
+
   if (loading || !decision) {
     return (
       <LinearGradient
@@ -248,7 +354,7 @@ const DecisionDetailScreen = () => {
       style={{ flex: 1 }}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Title + Invite Code */}
+        {/* Title */}
         <Text
           style={[styles.title, { color: theme.colors.onBackground }]}
         >
@@ -348,20 +454,14 @@ const DecisionDetailScreen = () => {
               </View>
             ))}
 
-            {/* Advance button (organizer only) */}
-            {isOrganizer && (
-              <TouchableOpacity
-                style={[
-                  styles.advanceButton,
-                  { backgroundColor: theme.colors.primary },
-                ]}
-                onPress={() => handleAdvancePhase("options")}
-              >
-                <Text style={styles.advanceButtonText}>
-                  Open for Options
-                </Text>
-                <Icon name="arrow-forward" size={18} color="#fff" />
-              </TouchableOpacity>
+            {/* Vote to advance (for all members) */}
+            {userId && (
+              <AdvanceVoteButton
+                decisionId={decision.id}
+                userId={userId}
+                fromPhase="constraints"
+                members={members}
+              />
             )}
           </View>
         )}
@@ -386,7 +486,11 @@ const DecisionDetailScreen = () => {
               {canSubmitOptions
                 ? "Add your suggestions."
                 : "Only the organizer can add options."}
+              {optionCount < 2 && " At least 2 options are needed to start voting."}
             </Text>
+
+            {/* Constraints summary */}
+            <ConstraintsSummary constraints={constraints} />
 
             {/* Option submission form */}
             {canSubmitOptions && !atMaxOptions && (
@@ -438,17 +542,38 @@ const DecisionDetailScreen = () => {
               </Text>
             )}
 
-            {/* Options list */}
+            {/* Options list with comments */}
             {options.map((o) => (
-              <OptionCard
-                key={o.id}
-                option={o}
-                showDelete={isOrganizer}
-                onDelete={() => handleRemoveOption(o.id)}
-              />
+              <View key={o.id}>
+                <OptionCard
+                  option={o}
+                  showDelete={isOrganizer || o.submitted_by === userId}
+                  onDelete={() => handleRemoveOption(o.id)}
+                />
+                {userId && (
+                  <CommentSection
+                    decisionId={decision.id}
+                    userId={userId}
+                    comments={comments}
+                    targetId={o.id}
+                    targetType="option"
+                    onCommentAdded={loadData}
+                  />
+                )}
+              </View>
             ))}
 
-            {/* Advance button (organizer only) */}
+            {/* Vote to advance (for all members) */}
+            {userId && options.length >= 2 && (
+              <AdvanceVoteButton
+                decisionId={decision.id}
+                userId={userId}
+                fromPhase="options"
+                members={members}
+              />
+            )}
+
+            {/* Advance to voting (organizer only) */}
             {isOrganizer && options.length >= 2 && (
               <TouchableOpacity
                 style={[
@@ -474,6 +599,9 @@ const DecisionDetailScreen = () => {
             >
               Vote
             </Text>
+
+            {/* Constraints summary */}
+            <ConstraintsSummary constraints={constraints} />
 
             {hasVoted ? (
               <View style={styles.votedNotice}>
@@ -503,6 +631,7 @@ const DecisionDetailScreen = () => {
                 onVoteSubmitted={handleVoteSubmitted}
               />
             )}
+
           </View>
         )}
 
@@ -517,12 +646,6 @@ const DecisionDetailScreen = () => {
             />
           </View>
         )}
-
-        {/* Members (always visible) */}
-        <MemberList
-          members={members}
-          showVoteStatus={decision.status === "voting"}
-        />
       </ScrollView>
     </LinearGradient>
   );
@@ -534,10 +657,10 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   title: {
+    marginBottom: 4,
     fontSize: 22,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
-    marginBottom: 4,
   },
   metaRow: {
     flexDirection: "row",

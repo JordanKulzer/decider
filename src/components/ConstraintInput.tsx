@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { TextInput as PaperInput, useTheme } from "react-native-paper";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import { CONSTRAINT_TYPES } from "../../assets/constants/decisionTypes";
 import type { ConstraintType } from "../types/decisions";
 

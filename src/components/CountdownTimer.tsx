@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { useTheme } from "react-native-paper";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import { formatCountdown, getCountdownUrgency } from "../utils/dateDisplay";
 
 interface CountdownTimerProps {
@@ -43,7 +43,7 @@ const CountdownTimer: React.FC<CountdownTimerProps> = ({
 
   return (
     <View style={styles.container}>
-      <Icon name="lock-clock" size={18} color={color} />
+      <Icon name="schedule" size={18} color={color} />
       <Text style={[styles.text, { color }]}>
         {display === "Locked" ? "Decision Locked" : `Locks ${display}`}
       </Text>

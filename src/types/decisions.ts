@@ -81,3 +81,25 @@ export interface Result {
   is_winner: boolean;
   option_title?: string;
 }
+
+export interface AdvanceVote {
+  id: string;
+  decision_id: string;
+  user_id: string;
+  from_phase: "constraints" | "options";
+  created_at: string;
+  username?: string;
+}
+
+export interface Comment {
+  id: string;
+  decision_id: string;
+  user_id: string;
+  option_id: string | null;
+  constraint_id: string | null;
+  parent_id: string | null;
+  content: string;
+  created_at: string;
+  username?: string;
+  replies?: Comment[];
+}

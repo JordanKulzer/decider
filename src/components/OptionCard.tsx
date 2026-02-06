@@ -1,7 +1,7 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
 import { useTheme } from "react-native-paper";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import type { DecisionOption } from "../types/decisions";
 
 interface OptionCardProps {
@@ -20,6 +20,21 @@ const OptionCard: React.FC<OptionCardProps> = ({
   const borderLeftColor = option.passes_constraints
     ? (theme as any).custom?.phaseComplete || "#22c55e"
     : theme.colors.error;
+
+  const handleDelete = () => {
+    Alert.alert(
+      "Delete Option",
+      `Are you sure you want to delete "${option.title}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: onDelete,
+        },
+      ]
+    );
+  };
 
   return (
     <View
@@ -41,7 +56,7 @@ const OptionCard: React.FC<OptionCardProps> = ({
           {option.title}
         </Text>
         {showDelete && onDelete && (
-          <TouchableOpacity onPress={onDelete} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={handleDelete} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Icon name="close" size={18} color={theme.colors.onSurfaceVariant} />
           </TouchableOpacity>
         )}

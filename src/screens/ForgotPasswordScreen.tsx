@@ -12,7 +12,7 @@ import {
 import { TextInput as PaperInput, useTheme } from "react-native-paper";
 import { supabase } from "../lib/supabase";
 import { LinearGradient } from "expo-linear-gradient";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 
 const ForgotPasswordScreen = ({ navigation }: { navigation: any }) => {
   const [email, setEmail] = useState("");

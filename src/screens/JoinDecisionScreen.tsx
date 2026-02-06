@@ -9,7 +9,7 @@ import {
 import { TextInput as PaperInput, useTheme } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { supabase } from "../lib/supabase";
 import { isDemoMode, DEMO_USER_ID } from "../lib/demoMode";
