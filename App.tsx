@@ -25,6 +25,9 @@ import CreateDecisionScreen from "./src/screens/CreateDecisionScreen";
 import DecisionDetailScreen from "./src/screens/DecisionDetailScreen";
 import JoinDecisionScreen from "./src/screens/JoinDecisionScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import SubscriptionScreen from "./src/screens/SubscriptionScreen";
+import FriendsScreen from "./src/screens/FriendsScreen";
+import { SubscriptionProvider } from "./src/context/SubscriptionContext";
 import HeaderLogo from "./src/components/HeaderLogo";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import { Provider as PaperProvider } from "react-native-paper";
@@ -285,6 +288,7 @@ const App: React.FC = () => {
         }
       />
       <PaperProvider theme={paperTheme}>
+        <SubscriptionProvider userId={user?.id || null}>
         <NavigationContainer theme={navigationTheme} linking={linking}>
           <Stack.Navigator
             screenOptions={{
@@ -343,6 +347,16 @@ const App: React.FC = () => {
                     name: "ProfileScreen",
                     component: ProfileScreen,
                     title: "Profile",
+                  },
+                  {
+                    name: "SubscriptionScreen",
+                    component: SubscriptionScreen,
+                    title: "Subscription",
+                  },
+                  {
+                    name: "FriendsScreen",
+                    component: FriendsScreen,
+                    title: "Friends",
                   },
                 ].map(({ name, component, title }) => (
                   <Stack.Screen
@@ -406,6 +420,7 @@ const App: React.FC = () => {
             )}
           </Stack.Navigator>
         </NavigationContainer>
+        </SubscriptionProvider>
         <Toast config={toastConfig} position="bottom" bottomOffset={60} />
       </PaperProvider>
     </GestureHandlerRootView>

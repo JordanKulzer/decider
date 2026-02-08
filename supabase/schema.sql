@@ -520,6 +520,8 @@ CREATE TABLE IF NOT EXISTS public.comments (
   parent_id UUID REFERENCES public.comments(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ DEFAULT NULL,
+  deleted_by UUID REFERENCES public.users(id),
   CONSTRAINT comment_target CHECK (
     (option_id IS NOT NULL AND constraint_id IS NULL) OR
     (option_id IS NULL AND constraint_id IS NOT NULL) OR
@@ -561,8 +563,28 @@ CREATE POLICY "Members can add comments" ON public.comments
     public.is_decision_member(decision_id, auth.uid())
   );
 
-CREATE POLICY "Users can delete own comments" ON public.comments
-  FOR DELETE USING (auth.uid() = user_id);
+-- Users can hard-delete own comments, organizers can delete any
+CREATE POLICY "Users or organizers can delete comments" ON public.comments
+  FOR DELETE USING (
+    auth.uid() = user_id OR
+    EXISTS (
+      SELECT 1 FROM public.decision_members
+      WHERE decision_id = comments.decision_id
+        AND user_id = auth.uid()
+        AND role = 'organizer'
+    )
+  );
+
+-- Organizers can soft-delete comments (update deleted_at)
+CREATE POLICY "Organizers can soft delete comments" ON public.comments
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM public.decision_members
+      WHERE decision_id = comments.decision_id
+        AND user_id = auth.uid()
+        AND role = 'organizer'
+    )
+  );
 
 -- Update member removal policy for organizer removal capability
 DROP POLICY IF EXISTS "Users can leave decisions" ON public.decision_members;
@@ -579,7 +601,76 @@ CREATE POLICY "Members can leave or be removed" ON public.decision_members
 
 -- Grant permissions on new tables
 GRANT SELECT, INSERT, DELETE ON public.advance_votes TO authenticated;
-GRANT SELECT, INSERT, DELETE ON public.comments TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.comments TO authenticated;
+
+-- ============================================
+-- 10. MONETIZATION & SUBSCRIPTION SYSTEM
+-- ============================================
+
+-- Add tier and subscription fields to users table
+ALTER TABLE public.users
+ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'pro')),
+ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT 'none' CHECK (subscription_status IN ('none', 'active', 'canceled', 'past_due')),
+ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ;
+
+-- Add Pro features to decisions table
+ALTER TABLE public.decisions
+ADD COLUMN IF NOT EXISTS silent_voting BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS constraint_weights_enabled BOOLEAN NOT NULL DEFAULT false;
+
+-- Add weight to constraints table
+ALTER TABLE public.constraints
+ADD COLUMN IF NOT EXISTS weight INTEGER NOT NULL DEFAULT 1 CHECK (weight >= 1 AND weight <= 5);
+
+-- Subscriptions table for audit/history
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL, -- 'stripe', 'apple', 'google', 'manual'
+  provider_subscription_id TEXT,
+  plan TEXT NOT NULL, -- 'pro_monthly', 'pro_yearly'
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'canceled', 'past_due', 'expired')),
+  current_period_start TIMESTAMPTZ NOT NULL,
+  current_period_end TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  canceled_at TIMESTAMPTZ,
+  UNIQUE(provider, provider_subscription_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON public.subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON public.subscriptions(status);
+
+-- Enable RLS on subscriptions
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- Users can view their own subscriptions
+CREATE POLICY "Users can view own subscriptions" ON public.subscriptions
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- Grant permissions on subscriptions table
+GRANT SELECT ON public.subscriptions TO authenticated;
+
+-- Update votes policy for silent voting
+DROP POLICY IF EXISTS "Members can view votes" ON public.votes;
+CREATE POLICY "Members can view votes respecting silent mode" ON public.votes
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.decision_members dm
+      JOIN public.decisions d ON d.id = dm.decision_id
+      WHERE dm.decision_id = votes.decision_id
+        AND dm.user_id = auth.uid()
+        AND (
+          -- Can always see own votes
+          votes.user_id = auth.uid()
+          OR
+          -- Can see all votes if decision is locked
+          d.status = 'locked'
+          OR
+          -- Can see votes if NOT silent voting mode
+          d.silent_voting = false
+        )
+    )
+  );
 
 -- ============================================
 -- SETUP COMPLETE!

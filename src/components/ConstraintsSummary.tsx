@@ -6,13 +6,15 @@ import type { Constraint } from "../types/decisions";
 
 interface ConstraintsSummaryProps {
   constraints: Constraint[];
+  defaultExpanded?: boolean;
 }
 
 const ConstraintsSummary: React.FC<ConstraintsSummaryProps> = ({
   constraints,
+  defaultExpanded = false,
 }) => {
   const theme = useTheme();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   if (constraints.length === 0) {
     return null;

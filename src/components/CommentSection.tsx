@@ -9,7 +9,7 @@ import {
 import { useTheme } from "react-native-paper";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
-import { addComment, removeComment } from "../lib/decisions";
+import { addComment, removeComment, softDeleteComment } from "../lib/decisions";
 import type { Comment } from "../types/decisions";
 
 interface CommentSectionProps {
@@ -19,6 +19,7 @@ interface CommentSectionProps {
   targetId: string;
   targetType: "option" | "constraint";
   onCommentAdded: () => void;
+  isOrganizer?: boolean;
 }
 
 const CommentSection: React.FC<CommentSectionProps> = ({
@@ -28,6 +29,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
   targetId,
   targetType,
   onCommentAdded,
+  isOrganizer = false,
 }) => {
   const theme = useTheme();
   const [expanded, setExpanded] = useState(false);
@@ -79,13 +81,20 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     setSubmitting(false);
   };
 
-  const handleDelete = async (commentId: string) => {
+  const handleDelete = async (commentId: string, commentOwnerId: string) => {
+    const isOwnComment = commentOwnerId === userId;
     try {
-      await removeComment(commentId);
+      if (isOwnComment) {
+        // Hard delete own comments
+        await removeComment(commentId);
+      } else if (isOrganizer) {
+        // Soft delete others' comments as organizer
+        await softDeleteComment(commentId, userId);
+      }
       onCommentAdded();
       Toast.show({
         type: "success",
-        text1: "Comment deleted",
+        text1: isOwnComment ? "Comment deleted" : "Comment removed",
         position: "bottom",
       });
     } catch (err: any) {
@@ -111,61 +120,89 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     return `${days}d ago`;
   };
 
-  const renderComment = (comment: Comment, isReply = false) => (
-    <View
-      key={comment.id}
-      style={[
-        styles.commentItem,
-        isReply && styles.replyItem,
-        {
-          backgroundColor: isReply
-            ? "transparent"
-            : (theme as any).custom?.card || theme.colors.surface,
-        },
-      ]}
-    >
-      <View style={styles.commentHeader}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {comment.username?.charAt(0).toUpperCase() || "?"}
+  const renderComment = (comment: Comment, isReply = false) => {
+    // Render placeholder for soft-deleted comments
+    if (comment.deleted_at) {
+      return (
+        <View
+          key={comment.id}
+          style={[
+            styles.commentItem,
+            styles.deletedComment,
+            isReply && styles.replyItem,
+            { backgroundColor: theme.colors.surfaceVariant },
+          ]}
+        >
+          <View style={styles.deletedContent}>
+            <Icon name="block" size={14} color={theme.colors.onSurfaceVariant} />
+            <Text style={[styles.deletedText, { color: theme.colors.onSurfaceVariant }]}>
+              Comment removed by organizer
+            </Text>
+          </View>
+          {/* Still render replies to deleted comments */}
+          {comment.replies?.map((reply) => renderComment(reply, true))}
+        </View>
+      );
+    }
+
+    const canDelete = comment.user_id === userId || isOrganizer;
+
+    return (
+      <View
+        key={comment.id}
+        style={[
+          styles.commentItem,
+          isReply && styles.replyItem,
+          {
+            backgroundColor: isReply
+              ? "transparent"
+              : (theme as any).custom?.card || theme.colors.surface,
+          },
+        ]}
+      >
+        <View style={styles.commentHeader}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {comment.username?.charAt(0).toUpperCase() || "?"}
+            </Text>
+          </View>
+          <Text
+            style={[styles.username, { color: theme.colors.onBackground }]}
+          >
+            {comment.username || "Unknown"}
           </Text>
+          <Text style={[styles.time, { color: theme.colors.onSurfaceVariant }]}>
+            {formatTime(comment.created_at)}
+          </Text>
+          {canDelete && (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => handleDelete(comment.id, comment.user_id)}
+            >
+              <Icon name="close" size={14} color={theme.colors.error} />
+            </TouchableOpacity>
+          )}
         </View>
         <Text
-          style={[styles.username, { color: theme.colors.onBackground }]}
+          style={[styles.commentText, { color: theme.colors.onBackground }]}
         >
-          {comment.username || "Unknown"}
+          {comment.content}
         </Text>
-        <Text style={[styles.time, { color: theme.colors.onSurfaceVariant }]}>
-          {formatTime(comment.created_at)}
-        </Text>
-        {comment.user_id === userId && (
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => handleDelete(comment.id)}
-          >
-            <Icon name="close" size={14} color={theme.colors.error} />
-          </TouchableOpacity>
-        )}
-      </View>
-      <Text
-        style={[styles.commentText, { color: theme.colors.onBackground }]}
-      >
-        {comment.content}
-      </Text>
-      <TouchableOpacity
-        style={styles.replyButton}
-        onPress={() => setReplyingTo(comment.id)}
-      >
-        <Icon name="reply" size={14} color={theme.colors.primary} />
-        <Text style={[styles.replyButtonText, { color: theme.colors.primary }]}>
-          Reply
-        </Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.replyButton}
+          onPress={() => setReplyingTo(comment.id)}
+        >
+          <Icon name="reply" size={14} color={theme.colors.primary} />
+          <Text style={[styles.replyButtonText, { color: theme.colors.primary }]}>
+            Reply
+          </Text>
+        </TouchableOpacity>
 
-      {/* Render replies */}
-      {comment.replies?.map((reply) => renderComment(reply, true))}
-    </View>
-  );
+        {/* Render replies */}
+        {comment.replies?.map((reply) => renderComment(reply, true))}
+      </View>
+    );
+  };
 
   if (!expanded) {
     return (
@@ -282,6 +319,19 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
     borderLeftWidth: 2,
     borderLeftColor: "#ddd",
+  },
+  deletedComment: {
+    opacity: 0.7,
+  },
+  deletedContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  deletedText: {
+    fontSize: 12,
+    fontFamily: "Rubik_400Regular",
+    fontStyle: "italic",
   },
   commentHeader: {
     flexDirection: "row",

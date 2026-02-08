@@ -6,11 +6,25 @@ import type {
   DecisionOption,
   Vote,
   Result,
+  Friend,
+  FriendRequest,
 } from "../types/decisions";
 
 const OTHER_USER_1 = "demo-user-00000000-0000-0000-0000-000000000002";
 const OTHER_USER_2 = "demo-user-00000000-0000-0000-0000-000000000003";
 const OTHER_USER_3 = "demo-user-00000000-0000-0000-0000-000000000004";
+const OTHER_USER_4 = "demo-user-00000000-0000-0000-0000-000000000005";
+const OTHER_USER_5 = "demo-user-00000000-0000-0000-0000-000000000006";
+
+// ─── USER PROFILES for friends ───
+const MOCK_USERS: Record<string, { username: string; email: string }> = {
+  [DEMO_USER_ID]: { username: "demo_user", email: "demo@decider.app" },
+  [OTHER_USER_1]: { username: "alex_m", email: "alex@example.com" },
+  [OTHER_USER_2]: { username: "jordan_k", email: "jordan@example.com" },
+  [OTHER_USER_3]: { username: "sam_w", email: "sam@example.com" },
+  [OTHER_USER_4]: { username: "taylor_r", email: "taylor@example.com" },
+  [OTHER_USER_5]: { username: "casey_j", email: "casey@example.com" },
+};
 
 // Lock time: 2 hours from now (so countdown timer works)
 const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
@@ -878,3 +892,180 @@ export const mockTransferOrganizer = async (
   const decision = ALL_DECISIONS[decisionId];
   if (decision) (decision as any).created_by = newOrganizerId;
 };
+
+// ─── FRIENDS (mock) ───
+
+// Demo user's friends - these are accepted friendships
+const MOCK_FRIENDS: Friend[] = [
+  {
+    id: "friend-001",
+    user_id: DEMO_USER_ID,
+    friend_id: OTHER_USER_1,
+    status: "accepted",
+    created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days ago
+    updated_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    friend_username: MOCK_USERS[OTHER_USER_1].username,
+    friend_email: MOCK_USERS[OTHER_USER_1].email,
+  },
+  {
+    id: "friend-002",
+    user_id: DEMO_USER_ID,
+    friend_id: OTHER_USER_2,
+    status: "accepted",
+    created_at: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
+    updated_at: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+    friend_username: MOCK_USERS[OTHER_USER_2].username,
+    friend_email: MOCK_USERS[OTHER_USER_2].email,
+  },
+  {
+    id: "friend-003",
+    user_id: DEMO_USER_ID,
+    friend_id: OTHER_USER_3,
+    status: "accepted",
+    created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+    updated_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    friend_username: MOCK_USERS[OTHER_USER_3].username,
+    friend_email: MOCK_USERS[OTHER_USER_3].email,
+  },
+];
+
+// Pending friend requests TO demo user
+const MOCK_FRIEND_REQUESTS: FriendRequest[] = [
+  {
+    id: "freq-001",
+    from_user_id: OTHER_USER_4,
+    to_user_id: DEMO_USER_ID,
+    status: "pending",
+    created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+    from_username: MOCK_USERS[OTHER_USER_4].username,
+    from_email: MOCK_USERS[OTHER_USER_4].email,
+  },
+  {
+    id: "freq-002",
+    from_user_id: OTHER_USER_5,
+    to_user_id: DEMO_USER_ID,
+    status: "pending",
+    created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    from_username: MOCK_USERS[OTHER_USER_5].username,
+    from_email: MOCK_USERS[OTHER_USER_5].email,
+  },
+];
+
+// Mock API functions for friends
+export const mockFetchFriends = async (userId: string): Promise<Friend[]> => {
+  // Return friends where user is the requester
+  return MOCK_FRIENDS.filter(
+    (f) => f.user_id === userId && f.status === "accepted"
+  );
+};
+
+export const mockFetchFriendRequests = async (
+  userId: string
+): Promise<FriendRequest[]> => {
+  // Return pending requests where user is the recipient
+  return MOCK_FRIEND_REQUESTS.filter(
+    (r) => r.to_user_id === userId && r.status === "pending"
+  );
+};
+
+export const mockSearchUsers = async (
+  query: string,
+  currentUserId: string
+): Promise<Array<{ id: string; username: string; email: string; isFriend: boolean }>> => {
+  const searchLower = query.toLowerCase();
+  const friendIds = MOCK_FRIENDS.filter(
+    (f) => f.user_id === currentUserId && f.status === "accepted"
+  ).map((f) => f.friend_id);
+
+  return Object.entries(MOCK_USERS)
+    .filter(([id, user]) => {
+      if (id === currentUserId) return false; // Don't include self
+      return (
+        user.username.toLowerCase().includes(searchLower) ||
+        user.email.toLowerCase().includes(searchLower)
+      );
+    })
+    .map(([id, user]) => ({
+      id,
+      username: user.username,
+      email: user.email,
+      isFriend: friendIds.includes(id),
+    }));
+};
+
+export const mockSendFriendRequest = async (
+  fromUserId: string,
+  toUserId: string
+): Promise<FriendRequest> => {
+  const request: FriendRequest = {
+    id: `freq-demo-${Date.now()}`,
+    from_user_id: fromUserId,
+    to_user_id: toUserId,
+    status: "pending",
+    created_at: new Date().toISOString(),
+    from_username: MOCK_USERS[fromUserId]?.username || "Unknown",
+    from_email: MOCK_USERS[fromUserId]?.email || "",
+  };
+  MOCK_FRIEND_REQUESTS.push(request);
+  return request;
+};
+
+export const mockAcceptFriendRequest = async (requestId: string) => {
+  const request = MOCK_FRIEND_REQUESTS.find((r) => r.id === requestId);
+  if (!request) return;
+
+  // Update request status
+  request.status = "accepted";
+
+  // Create mutual friendship
+  const now = new Date().toISOString();
+  const friend: Friend = {
+    id: `friend-demo-${Date.now()}`,
+    user_id: request.to_user_id,
+    friend_id: request.from_user_id,
+    status: "accepted",
+    created_at: now,
+    updated_at: now,
+    friend_username: MOCK_USERS[request.from_user_id]?.username,
+    friend_email: MOCK_USERS[request.from_user_id]?.email,
+  };
+  MOCK_FRIENDS.push(friend);
+
+  // Remove from pending requests
+  const idx = MOCK_FRIEND_REQUESTS.findIndex((r) => r.id === requestId);
+  if (idx !== -1) MOCK_FRIEND_REQUESTS.splice(idx, 1);
+};
+
+export const mockDeclineFriendRequest = async (requestId: string) => {
+  const idx = MOCK_FRIEND_REQUESTS.findIndex((r) => r.id === requestId);
+  if (idx !== -1) MOCK_FRIEND_REQUESTS.splice(idx, 1);
+};
+
+export const mockRemoveFriend = async (userId: string, friendId: string) => {
+  // Remove from both directions
+  const idx = MOCK_FRIENDS.findIndex(
+    (f) =>
+      (f.user_id === userId && f.friend_id === friendId) ||
+      (f.user_id === friendId && f.friend_id === userId)
+  );
+  if (idx !== -1) MOCK_FRIENDS.splice(idx, 1);
+};
+
+// Get users who can be invited to a decision (friends not already members)
+export const mockGetInvitableFriends = async (
+  userId: string,
+  decisionId: string
+): Promise<Friend[]> => {
+  const members = ALL_MEMBERS[decisionId] || [];
+  const memberIds = members.map((m) => m.user_id);
+
+  return MOCK_FRIENDS.filter(
+    (f) =>
+      f.user_id === userId &&
+      f.status === "accepted" &&
+      !memberIds.includes(f.friend_id)
+  );
+};
+
+// Export MOCK_USERS for use in other files
+export { MOCK_USERS };

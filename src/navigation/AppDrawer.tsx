@@ -8,17 +8,58 @@ import {
   Text,
   StyleSheet,
   View,
-  Alert,
   Animated,
+  Alert,
 } from "react-native";
 import HomeScreen from "../screens/HomeScreen";
 import * as Linking from "expo-linking";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { Modal, Portal, Button, useTheme } from "react-native-paper";
 import { supabase } from "../lib/supabase";
 import { isDemoMode } from "../lib/demoMode";
+import { useSubscription } from "../context/SubscriptionContext";
 
 const Drawer = createDrawerNavigator();
+
+// Profile Header Button Component
+const ProfileHeaderButton = ({
+  navigation,
+  username,
+}: {
+  navigation: any;
+  username?: string;
+}) => {
+  const theme = useTheme();
+  const { isProUser, profile } = useSubscription();
+
+  const initial =
+    profile?.username?.charAt(0)?.toUpperCase() ||
+    username?.charAt(0)?.toUpperCase() ||
+    "?";
+
+  return (
+    <TouchableOpacity
+      style={styles.profileButton}
+      onPress={() => navigation.navigate("ProfileScreen")}
+    >
+      <View
+        style={[
+          styles.profileAvatar,
+          {
+            backgroundColor: isProUser ? "#f59e0b" : theme.colors.primary,
+          },
+        ]}
+      >
+        <Text style={styles.profileAvatarText}>{initial}</Text>
+      </View>
+      {isProUser && (
+        <View style={styles.proCrown}>
+          <MaterialCommunityIcons name="crown" size={10} color="#f59e0b" />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+};
 
 const AppDrawerContent = ({
   userId,
@@ -36,6 +77,7 @@ const AppDrawerContent = ({
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const theme = useTheme();
+  const { tier, isProUser } = useSubscription();
   const logoutAnim = useRef(new Animated.Value(600)).current;
   const deleteAnim = useRef(new Animated.Value(600)).current;
 
@@ -96,7 +138,7 @@ const AppDrawerContent = ({
     } catch (error: any) {
       Alert.alert(
         "Error",
-        `Failed to delete account: ${error.message || "Unknown error"}`
+        `Failed to delete account: ${error.message || "Unknown error"}`,
       );
     }
   };
@@ -105,7 +147,7 @@ const AppDrawerContent = ({
     iconName: React.ComponentProps<typeof MaterialCommunityIcons>["name"],
     label: string,
     onPress?: () => void,
-    labelColor = theme.colors.onBackground
+    labelColor = theme.colors.onBackground,
   ) => (
     <TouchableOpacity style={styles.settingItem} onPress={onPress}>
       <View style={styles.iconContainer}>
@@ -137,10 +179,7 @@ const AppDrawerContent = ({
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <DrawerContentScrollView
-        style={[
-          styles.container,
-          { backgroundColor: theme.colors.background },
-        ]}
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
       >
         <Text style={[styles.header, { color: theme.colors.onBackground }]}>
           Settings
@@ -148,10 +187,7 @@ const AppDrawerContent = ({
         <View style={styles.divider} />
 
         <View style={{ flex: 1 }}>
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={toggleTheme}
-          >
+          <TouchableOpacity style={styles.settingItem} onPress={toggleTheme}>
             <View style={styles.iconContainer}>
               <MaterialCommunityIcons
                 name={isDarkTheme ? "weather-night" : "weather-sunny"}
@@ -170,18 +206,63 @@ const AppDrawerContent = ({
           </TouchableOpacity>
 
           {renderItemWithIcon("bell-outline", "Notifications", () =>
-            Linking.openSettings()
+            Linking.openSettings(),
           )}
 
           {renderItemWithIcon("account-outline", "Profile", () =>
-            navigation.navigate("ProfileScreen")
+            navigation.navigate("ProfileScreen"),
           )}
+
+          {/* Subscription with tier indicator */}
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => navigation.navigate("SubscriptionScreen")}
+          >
+            <View style={styles.iconContainer}>
+              <MaterialCommunityIcons
+                name={isProUser ? "crown" : "star-outline"}
+                size={20}
+                color={isProUser ? "#f59e0b" : theme.colors.onBackground}
+              />
+            </View>
+            <Text
+              style={[
+                styles.settingLabel,
+                { color: theme.colors.onBackground },
+              ]}
+            >
+              Subscription
+            </Text>
+            <View
+              style={[
+                styles.tierBadge,
+                {
+                  backgroundColor: isProUser
+                    ? "rgba(245, 158, 11, 0.15)"
+                    : theme.colors.surfaceVariant,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tierBadgeText,
+                  {
+                    color: isProUser
+                      ? "#f59e0b"
+                      : theme.colors.onSurfaceVariant,
+                  },
+                ]}
+              >
+                {isProUser ? "PRO" : "FREE"}
+              </Text>
+            </View>
+          </TouchableOpacity>
 
           {renderItemWithIcon(
             "logout",
             "Log Out",
             () => setLogoutConfirmVisible(true),
-            theme.colors.error
+            theme.colors.error,
           )}
         </View>
       </DrawerContentScrollView>
@@ -200,9 +281,7 @@ const AppDrawerContent = ({
           contentStyle={{ paddingVertical: 8 }}
           labelStyle={{
             fontWeight: "600",
-            color: theme.dark
-              ? theme.colors.onPrimary
-              : theme.colors.error,
+            color: theme.dark ? theme.colors.onPrimary : theme.colors.error,
             fontFamily: "Rubik_500Medium",
           }}
         >
@@ -358,7 +437,7 @@ const AppDrawer = ({
               />
             </TouchableOpacity>
           ),
-          headerRight: () => <View style={{ width: 44 }} />,
+          headerRight: () => <ProfileHeaderButton navigation={navigation} />,
         }),
       } as unknown as React.ComponentProps<typeof Drawer.Navigator>)}
     >
@@ -418,6 +497,122 @@ const styles = StyleSheet.create({
   divider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(180,180,180,0.3)",
+  },
+  tierBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  tierBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    fontFamily: "Rubik_600SemiBold",
+  },
+  // Profile Header Button Styles
+  profileButton: {
+    paddingRight: 16,
+    position: "relative",
+  },
+  profileAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileAvatarText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    fontFamily: "Rubik_600SemiBold",
+  },
+  proCrown: {
+    position: "absolute",
+    top: -2,
+    right: 12,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 2,
+  },
+  // Menu Styles
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  menuContainer: {
+    width: 280,
+    height: "100%",
+    paddingTop: 60,
+    paddingHorizontal: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  menuHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    gap: 12,
+  },
+  menuAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuAvatarText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+    fontFamily: "Rubik_600SemiBold",
+  },
+  menuUserInfo: {
+    flex: 1,
+  },
+  menuUsername: {
+    fontSize: 17,
+    fontWeight: "600",
+    fontFamily: "Rubik_500Medium",
+    marginBottom: 4,
+  },
+  menuTierRow: {
+    flexDirection: "row",
+  },
+  menuTierBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  menuTierText: {
+    fontSize: 11,
+    fontWeight: "700",
+    fontFamily: "Rubik_600SemiBold",
+  },
+  menuDivider: {
+    height: 1,
+    marginVertical: 8,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    gap: 12,
+  },
+  menuItemText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    fontFamily: "Rubik_500Medium",
+  },
+  menuItemHint: {
+    fontSize: 12,
+    fontFamily: "Rubik_400Regular",
+    marginTop: 2,
   },
 });
 

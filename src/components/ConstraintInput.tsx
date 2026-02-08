@@ -4,19 +4,28 @@ import { TextInput as PaperInput, useTheme } from "react-native-paper";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import { CONSTRAINT_TYPES } from "../../assets/constants/decisionTypes";
 import type { ConstraintType } from "../types/decisions";
+import ProBadge from "./ProBadge";
+import { useSubscription } from "../context/SubscriptionContext";
 
 interface ConstraintInputProps {
-  onSubmit: (type: ConstraintType, value: Record<string, any>) => void;
+  onSubmit: (type: ConstraintType, value: Record<string, any>, weight?: number) => void;
   disabled?: boolean;
+  showWeighting?: boolean;
 }
 
 const ConstraintInput: React.FC<ConstraintInputProps> = ({
   onSubmit,
   disabled,
+  showWeighting = false,
 }) => {
   const theme = useTheme();
+  const { tier } = useSubscription();
   const [selectedType, setSelectedType] = useState<ConstraintType | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [weight, setWeight] = useState(1);
+
+  const isPro = tier === "pro";
+  const canUseWeighting = showWeighting && isPro;
 
   const handleSubmit = () => {
     if (!selectedType || !inputValue.trim()) return;
@@ -42,9 +51,10 @@ const ConstraintInput: React.FC<ConstraintInputProps> = ({
         value = { text: inputValue.trim() };
     }
 
-    onSubmit(selectedType, value);
+    onSubmit(selectedType, value, canUseWeighting ? weight : undefined);
     setInputValue("");
     setSelectedType(null);
+    setWeight(1);
   };
 
   return (
@@ -100,37 +110,88 @@ const ConstraintInput: React.FC<ConstraintInputProps> = ({
 
       {/* Value input (shown when type is selected) */}
       {selectedType && (
-        <View style={styles.inputRow}>
-          <PaperInput
-            label={
-              CONSTRAINT_TYPES.find((c) => c.key === selectedType)
-                ?.placeholder || "Value"
-            }
-            mode="outlined"
-            value={inputValue}
-            onChangeText={setInputValue}
-            keyboardType={
-              selectedType === "budget_max" ||
-              selectedType === "distance" ||
-              selectedType === "duration"
-                ? "numeric"
-                : "default"
-            }
-            style={styles.input}
-            theme={{ colors: { primary: "#2563eb" } }}
-            dense
-          />
-          <TouchableOpacity
-            style={[
-              styles.addButton,
-              { backgroundColor: theme.colors.primary },
-            ]}
-            onPress={handleSubmit}
-            disabled={!inputValue.trim()}
-          >
-            <Icon name="add" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        <>
+          <View style={styles.inputRow}>
+            <PaperInput
+              label={
+                CONSTRAINT_TYPES.find((c) => c.key === selectedType)
+                  ?.placeholder || "Value"
+              }
+              mode="outlined"
+              value={inputValue}
+              onChangeText={setInputValue}
+              keyboardType={
+                selectedType === "budget_max" ||
+                selectedType === "distance" ||
+                selectedType === "duration"
+                  ? "numeric"
+                  : "default"
+              }
+              style={styles.input}
+              theme={{ colors: { primary: "#2563eb" } }}
+              dense
+            />
+            <TouchableOpacity
+              style={[
+                styles.addButton,
+                { backgroundColor: theme.colors.primary },
+              ]}
+              onPress={handleSubmit}
+              disabled={!inputValue.trim()}
+            >
+              <Icon name="add" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Weight selector (Pro feature) */}
+          {showWeighting && (
+            <View style={styles.weightSection}>
+              <View style={styles.weightLabelRow}>
+                <Text style={[styles.weightLabel, { color: theme.colors.onSurfaceVariant }]}>
+                  Importance
+                </Text>
+                <ProBadge />
+              </View>
+              <View style={styles.weightRow}>
+                {[1, 2, 3, 4, 5].map((w) => (
+                  <TouchableOpacity
+                    key={w}
+                    style={[
+                      styles.weightButton,
+                      {
+                        backgroundColor: weight === w
+                          ? theme.colors.primary
+                          : (theme as any).custom?.card || theme.colors.surface,
+                        borderColor: weight === w
+                          ? theme.colors.primary
+                          : (theme as any).custom?.cardBorder || theme.colors.outline,
+                        opacity: isPro ? 1 : 0.5,
+                      },
+                    ]}
+                    onPress={() => isPro && setWeight(w)}
+                    disabled={!isPro}
+                  >
+                    <Text
+                      style={{
+                        color: weight === w ? "#fff" : theme.colors.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: "600",
+                        fontFamily: "Rubik_500Medium",
+                      }}
+                    >
+                      {w}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {!isPro && (
+                <Text style={[styles.proHint, { color: theme.colors.onSurfaceVariant }]}>
+                  Upgrade to Pro to weight constraints
+                </Text>
+              )}
+            </View>
+          )}
+        </>
       )}
     </View>
   );
@@ -177,6 +238,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 6,
+  },
+  weightSection: {
+    marginTop: 12,
+  },
+  weightLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  weightLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+    fontFamily: "Rubik_500Medium",
+  },
+  weightRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  weightButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  proHint: {
+    fontSize: 11,
+    marginTop: 6,
+    fontStyle: "italic",
+    fontFamily: "Rubik_400Regular",
   },
 });
 

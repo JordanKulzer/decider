@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,6 @@ import { TextInput as PaperInput, useTheme, Switch } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import Icon from "react-native-vector-icons/MaterialIcons";
-import DateTimePicker from "@react-native-community/datetimepicker";
 import Toast from "react-native-toast-message";
 import { supabase } from "../lib/supabase";
 import { isDemoMode, DEMO_USER_ID } from "../lib/demoMode";
@@ -23,20 +22,30 @@ import {
   DECISION_TYPES,
   VOTING_MECHANISMS,
 } from "../../assets/constants/decisionTypes";
+import DuplicateDecisionModal from "../components/DuplicateDecisionModal";
+import DateTimePickerModal from "../components/DateTimePickerModal";
+import ProBadge from "../components/ProBadge";
+import UpgradePrompt from "../components/UpgradePrompt";
+import { duplicateDecision, PastDecisionSummary } from "../lib/decisions";
+import { useSubscription } from "../context/SubscriptionContext";
 
 const CreateDecisionScreen = () => {
   const theme = useTheme();
   const navigation = useNavigation<any>();
   const isDark = useColorScheme() === "dark";
+  const { tier } = useSubscription();
 
   const [title, setTitle] = useState("");
+  const [silentVoting, setSilentVoting] = useState(false);
+  const [constraintWeighting, setConstraintWeighting] = useState(false);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+  const [upgradeFeature, setUpgradeFeature] = useState("");
   const [description, setDescription] = useState("");
   const [typeLabel, setTypeLabel] = useState<string | null>(null);
   const [lockTime, setLockTime] = useState<Date>(
     new Date(Date.now() + 24 * 60 * 60 * 1000) // default: 24h from now
   );
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showDateTimeModal, setShowDateTimeModal] = useState(false);
   const [votingMechanism, setVotingMechanism] = useState<string>(
     "point_allocation"
   );
@@ -44,6 +53,35 @@ const CreateDecisionScreen = () => {
   const [maxOptions, setMaxOptions] = useState(7);
   const [revealVotes, setRevealVotes] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [selectedSourceDecision, setSelectedSourceDecision] = useState<PastDecisionSummary | null>(null);
+
+  // Get current user ID
+  useEffect(() => {
+    const getUserId = async () => {
+      if (isDemoMode()) {
+        setUserId(DEMO_USER_ID);
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        setUserId(user?.id || null);
+      }
+    };
+    getUserId();
+  }, []);
+
+  const handleSelectPastDecision = (decision: PastDecisionSummary) => {
+    setSelectedSourceDecision(decision);
+    setShowDuplicateModal(false);
+    // Pre-fill title with a modified version
+    setTitle(`${decision.title} (copy)`);
+    Toast.show({
+      type: "info",
+      text1: "Decision selected",
+      text2: "Settings, constraints & options will be copied on create.",
+      position: "bottom",
+    });
+  };
 
   const gradientColors = useMemo(() => {
     return theme.dark
@@ -74,6 +112,30 @@ const CreateDecisionScreen = () => {
 
     setCreating(true);
     try {
+      // If duplicating from a past decision
+      if (selectedSourceDecision && userId) {
+        const result = await duplicateDecision(
+          selectedSourceDecision.id,
+          title.trim(),
+          description.trim() || null,
+          lockTime.toISOString(),
+          userId
+        );
+
+        Toast.show({
+          type: "success",
+          text1: "Decision created!",
+          text2: `Copied ${result.constraintsCopied} constraints, ${result.optionsCopied} options`,
+          position: "bottom",
+        });
+
+        navigation.replace("DecisionDetailScreen", {
+          decisionId: result.decision.id,
+        });
+        return;
+      }
+
+      // Standard creation flow
       const inviteCode = generateInviteCode();
 
       if (isDemoMode()) {
@@ -89,6 +151,8 @@ const CreateDecisionScreen = () => {
           option_submission: optionSubmission as any,
           reveal_votes_after_lock: revealVotes,
           invite_code: inviteCode,
+          silent_voting: silentVoting,
+          constraint_weights_enabled: constraintWeighting,
         });
 
         Toast.show({
@@ -124,6 +188,8 @@ const CreateDecisionScreen = () => {
             option_submission: optionSubmission,
             reveal_votes_after_lock: revealVotes,
             invite_code: inviteCode,
+            silent_voting: silentVoting,
+            constraint_weights_enabled: constraintWeighting,
           },
         ])
         .select("id, invite_code")
@@ -131,7 +197,7 @@ const CreateDecisionScreen = () => {
 
       if (insertError) throw insertError;
 
-      // Add organizer as first member
+      // Add organizer as first member (trigger also does this, but keeping for safety)
       await supabase.from("decision_members").insert([
         {
           decision_id: decision.id,
@@ -178,6 +244,48 @@ const CreateDecisionScreen = () => {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Start from past decision button */}
+          <TouchableOpacity
+            style={[
+              styles.duplicateButton,
+              {
+                backgroundColor: (theme as any).custom?.card || theme.colors.surface,
+                borderColor: (theme as any).custom?.cardBorder || theme.colors.outline,
+              },
+            ]}
+            onPress={() => setShowDuplicateModal(true)}
+            activeOpacity={0.7}
+          >
+            <Icon name="content-copy" size={20} color={theme.colors.primary} />
+            <View style={styles.duplicateButtonContent}>
+              <Text style={[styles.duplicateButtonTitle, { color: theme.colors.onBackground }]}>
+                Start from past decision
+              </Text>
+              <Text style={[styles.duplicateButtonHint, { color: theme.colors.onSurfaceVariant }]}>
+                Copy settings, constraints & options from a previous decision
+              </Text>
+            </View>
+            <Icon name="chevron-right" size={20} color={theme.colors.onSurfaceVariant} />
+          </TouchableOpacity>
+
+          {/* Selected source indicator */}
+          {selectedSourceDecision && (
+            <View
+              style={[
+                styles.selectedSource,
+                { backgroundColor: `${theme.colors.primary}15` },
+              ]}
+            >
+              <Icon name="check-circle" size={16} color={theme.colors.primary} />
+              <Text style={[styles.selectedSourceText, { color: theme.colors.primary }]}>
+                Copying from: {selectedSourceDecision.title}
+              </Text>
+              <TouchableOpacity onPress={() => setSelectedSourceDecision(null)}>
+                <Icon name="close" size={16} color={theme.colors.primary} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Title */}
           <Text
             style={[
@@ -269,7 +377,7 @@ const CreateDecisionScreen = () => {
               { color: theme.colors.onBackground },
             ]}
           >
-            Lock Time
+            Deadline
           </Text>
           <Text
             style={[
@@ -277,66 +385,76 @@ const CreateDecisionScreen = () => {
               { color: theme.colors.onSurfaceVariant },
             ]}
           >
-            When the decision auto-finalizes. No more changes after this.
+            When voting ends and the decision is finalized.
           </Text>
+
+          {/* Quick preset buttons */}
+          <View style={styles.presetRow}>
+            {[
+              { label: "1 hour", hours: 1 },
+              { label: "Tomorrow", hours: 24 },
+              { label: "2 days", hours: 48 },
+              { label: "1 week", hours: 168 },
+            ].map((preset) => {
+              const presetDate = new Date(Date.now() + preset.hours * 60 * 60 * 1000);
+              const isSelected = Math.abs(lockTime.getTime() - presetDate.getTime()) < 60 * 60 * 1000;
+              return (
+                <TouchableOpacity
+                  key={preset.label}
+                  style={[
+                    styles.presetButton,
+                    {
+                      backgroundColor: isSelected
+                        ? theme.colors.primary
+                        : (theme as any).custom?.card || theme.colors.surface,
+                      borderColor: isSelected
+                        ? theme.colors.primary
+                        : (theme as any).custom?.cardBorder || theme.colors.outline,
+                    },
+                  ]}
+                  onPress={() => setLockTime(presetDate)}
+                >
+                  <Text
+                    style={[
+                      styles.presetButtonText,
+                      { color: isSelected ? "#fff" : theme.colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {preset.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Custom date/time selector */}
           <TouchableOpacity
             style={[
               styles.dateButton,
               {
-                backgroundColor:
-                  (theme as any).custom?.card || theme.colors.surface,
-                borderColor:
-                  (theme as any).custom?.cardBorder || theme.colors.outline,
+                backgroundColor: theme.colors.primary + "15",
+                borderColor: theme.colors.primary,
+                borderStyle: "dashed",
               },
             ]}
-            onPress={() => setShowDatePicker(true)}
+            onPress={() => setShowDateTimeModal(true)}
           >
-            <Icon name="event" size={18} color={theme.colors.primary} />
-            <Text
-              style={[
-                styles.dateButtonText,
-                { color: theme.colors.onBackground },
-              ]}
-            >
-              {formatLockTime(lockTime.toISOString())}
-            </Text>
+            <Icon name="edit-calendar" size={20} color={theme.colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.dateButtonLabel, { color: theme.colors.primary }]}>
+                Custom date & time
+              </Text>
+              <Text
+                style={[
+                  styles.dateButtonText,
+                  { color: theme.colors.onBackground },
+                ]}
+              >
+                {formatLockTime(lockTime.toISOString())}
+              </Text>
+            </View>
+            <Icon name="chevron-right" size={20} color={theme.colors.primary} />
           </TouchableOpacity>
-
-          {showDatePicker && (
-            <DateTimePicker
-              value={lockTime}
-              mode="date"
-              minimumDate={new Date()}
-              onChange={(event, date) => {
-                setShowDatePicker(false);
-                if (date) {
-                  const updated = new Date(lockTime);
-                  updated.setFullYear(
-                    date.getFullYear(),
-                    date.getMonth(),
-                    date.getDate()
-                  );
-                  setLockTime(updated);
-                  setShowTimePicker(true);
-                }
-              }}
-            />
-          )}
-
-          {showTimePicker && (
-            <DateTimePicker
-              value={lockTime}
-              mode="time"
-              onChange={(event, date) => {
-                setShowTimePicker(false);
-                if (date) {
-                  const updated = new Date(lockTime);
-                  updated.setHours(date.getHours(), date.getMinutes());
-                  setLockTime(updated);
-                }
-              }}
-            />
-          )}
 
           {/* Voting Mechanism */}
           <Text
@@ -537,6 +655,118 @@ const CreateDecisionScreen = () => {
             />
           </View>
 
+          {/* Silent Voting (Pro Feature) */}
+          <TouchableOpacity
+            style={[
+              styles.switchRow,
+              styles.proFeatureRow,
+              {
+                backgroundColor: tier !== "pro"
+                  ? (theme.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)")
+                  : "transparent",
+                borderColor: tier !== "pro"
+                  ? (theme.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)")
+                  : "transparent",
+              },
+            ]}
+            activeOpacity={tier === "pro" ? 1 : 0.7}
+            onPress={() => {
+              if (tier !== "pro") {
+                setUpgradeFeature("Silent Voting");
+                setShowUpgradePrompt(true);
+              }
+            }}
+          >
+            <View style={{ flex: 1, opacity: tier !== "pro" ? 0.6 : 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text
+                  style={[
+                    styles.switchLabel,
+                    { color: theme.colors.onBackground },
+                  ]}
+                >
+                  Silent voting
+                </Text>
+                <ProBadge />
+              </View>
+              <Text
+                style={[
+                  styles.switchHint,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                Hide vote counts until the decision is finalized.
+              </Text>
+            </View>
+            {tier === "pro" ? (
+              <Switch
+                value={silentVoting}
+                onValueChange={setSilentVoting}
+                color={theme.colors.primary}
+              />
+            ) : (
+              <View style={styles.lockedSwitch}>
+                <Icon name="lock" size={18} color={theme.colors.onSurfaceVariant} />
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Constraint Weighting (Pro Feature) */}
+          <TouchableOpacity
+            style={[
+              styles.switchRow,
+              styles.proFeatureRow,
+              {
+                backgroundColor: tier !== "pro"
+                  ? (theme.dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)")
+                  : "transparent",
+                borderColor: tier !== "pro"
+                  ? (theme.dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)")
+                  : "transparent",
+              },
+            ]}
+            activeOpacity={tier === "pro" ? 1 : 0.7}
+            onPress={() => {
+              if (tier !== "pro") {
+                setUpgradeFeature("Constraint Weighting");
+                setShowUpgradePrompt(true);
+              }
+            }}
+          >
+            <View style={{ flex: 1, opacity: tier !== "pro" ? 0.6 : 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text
+                  style={[
+                    styles.switchLabel,
+                    { color: theme.colors.onBackground },
+                  ]}
+                >
+                  Constraint weighting
+                </Text>
+                <ProBadge />
+              </View>
+              <Text
+                style={[
+                  styles.switchHint,
+                  { color: theme.colors.onSurfaceVariant },
+                ]}
+              >
+                Assign importance levels (1-5) to constraints.
+              </Text>
+            </View>
+            {tier === "pro" ? (
+              <Switch
+                value={constraintWeighting}
+                onValueChange={setConstraintWeighting}
+                color={theme.colors.primary}
+              />
+            ) : (
+              <View style={styles.lockedSwitch}>
+                <Icon name="lock" size={18} color={theme.colors.onSurfaceVariant} />
+              </View>
+            )}
+          </TouchableOpacity>
+
           {/* Create Button */}
           <TouchableOpacity
             style={[
@@ -555,6 +785,40 @@ const CreateDecisionScreen = () => {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Duplicate Decision Modal */}
+      {userId && (
+        <DuplicateDecisionModal
+          visible={showDuplicateModal}
+          onClose={() => setShowDuplicateModal(false)}
+          onSelect={handleSelectPastDecision}
+          userId={userId}
+        />
+      )}
+
+      {/* Date Time Picker Modal */}
+      <DateTimePickerModal
+        visible={showDateTimeModal}
+        value={lockTime}
+        minimumDate={new Date()}
+        onConfirm={(date) => {
+          setLockTime(date);
+          setShowDateTimeModal(false);
+        }}
+        onCancel={() => setShowDateTimeModal(false)}
+      />
+
+      {/* Upgrade Prompt */}
+      <UpgradePrompt
+        visible={showUpgradePrompt}
+        onClose={() => setShowUpgradePrompt(false)}
+        onUpgrade={() => {
+          setShowUpgradePrompt(false);
+          navigation.navigate("SubscriptionScreen" as any);
+        }}
+        feature={upgradeFeature}
+        reason={`${upgradeFeature} is a Pro feature. Upgrade to unlock all Pro features.`}
+      />
     </LinearGradient>
   );
 };
@@ -600,13 +864,37 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     fontFamily: "Rubik_500Medium",
   },
+  presetRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  presetButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  presetButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: "Rubik_500Medium",
+  },
   dateButton: {
     flexDirection: "row",
     alignItems: "center",
     padding: 14,
     borderRadius: 10,
-    borderWidth: 1,
-    gap: 8,
+    borderWidth: 1.5,
+    gap: 12,
+  },
+  dateButtonLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: "Rubik_500Medium",
+    marginBottom: 2,
   },
   dateButtonText: {
     fontSize: 15,
@@ -706,6 +994,57 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
+  },
+  duplicateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    marginBottom: 8,
+  },
+  duplicateButtonContent: {
+    flex: 1,
+  },
+  duplicateButtonTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    fontFamily: "Rubik_500Medium",
+  },
+  duplicateButtonHint: {
+    fontSize: 12,
+    marginTop: 2,
+    fontFamily: "Rubik_400Regular",
+  },
+  selectedSource: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 8,
+    gap: 8,
+    marginBottom: 8,
+  },
+  selectedSourceText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "500",
+    fontFamily: "Rubik_500Medium",
+  },
+  proFeatureRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
+    marginBottom: 0,
+  },
+  lockedSwitch: {
+    width: 50,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "rgba(128,128,128,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 

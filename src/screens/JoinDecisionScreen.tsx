@@ -18,7 +18,9 @@ import {
   fetchDecisionByInviteCode,
   joinDecision,
 } from "../lib/decisions";
+import { checkParticipantLimit } from "../lib/subscription";
 import { formatLockTime } from "../utils/dateDisplay";
+import UpgradePrompt from "../components/UpgradePrompt";
 import { PHASE_LABELS } from "../../assets/constants/decisionTypes";
 import type { Decision } from "../types/decisions";
 
@@ -33,6 +35,8 @@ const JoinDecisionScreen = () => {
   const [decision, setDecision] = useState<Decision | null>(null);
   const [loading, setLoading] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<string | undefined>();
 
   const gradientColors = useMemo(() => {
     return theme.dark
@@ -112,6 +116,18 @@ const JoinDecisionScreen = () => {
         currentUserId = user.id;
       }
 
+      // Check participant limit for the host's tier
+      const participantCheck = await checkParticipantLimit(
+        decision.id,
+        decision.created_by
+      );
+      if (!participantCheck.allowed) {
+        setUpgradeReason(participantCheck.reason);
+        setShowUpgradePrompt(true);
+        setJoining(false);
+        return;
+      }
+
       await joinDecision(decision.id, currentUserId);
 
       Toast.show({
@@ -147,6 +163,7 @@ const JoinDecisionScreen = () => {
   };
 
   return (
+    <>
     <LinearGradient
       colors={gradientColors}
       start={{ x: 0, y: 0 }}
@@ -344,6 +361,18 @@ const JoinDecisionScreen = () => {
         )}
       </View>
     </LinearGradient>
+
+    <UpgradePrompt
+      visible={showUpgradePrompt}
+      onClose={() => setShowUpgradePrompt(false)}
+      onUpgrade={() => {
+        setShowUpgradePrompt(false);
+        navigation.navigate("SubscriptionScreen" as any);
+      }}
+      feature="Join Decision"
+      reason={upgradeReason}
+    />
+    </>
   );
 };
 

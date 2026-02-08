@@ -12,11 +12,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
+import Toast from "react-native-toast-message";
 import { supabase } from "../lib/supabase";
 import { isDemoMode, DEMO_USER_ID } from "../lib/demoMode";
 import { fetchUserDecisions } from "../lib/decisions";
+import { checkCanCreateDecision } from "../lib/subscription";
 import { formatCountdown, getCountdownUrgency } from "../utils/dateDisplay";
 import { PHASE_LABELS } from "../../assets/constants/decisionTypes";
+import UpgradePrompt from "../components/UpgradePrompt";
 import type { Decision, DecisionStatus } from "../types/decisions";
 
 const STATUS_COLORS: Record<DecisionStatus, string> = {
@@ -30,6 +33,8 @@ const HomeScreen = () => {
   const [decisions, setDecisions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<string | undefined>();
   const theme = useTheme();
   const navigation = useNavigation<any>();
 
@@ -38,6 +43,31 @@ const HomeScreen = () => {
       ? (["#121212", "#1d1d1d", "#2b2b2d"] as const)
       : (["#fdfcf9", "#e0e7ff"] as const);
   }, [theme.dark]);
+
+  const handleCreateDecision = async () => {
+    if (!userId) {
+      navigation.navigate("CreateDecisionScreen");
+      return;
+    }
+    try {
+      const { allowed, reason } = await checkCanCreateDecision(userId);
+      if (!allowed) {
+        setUpgradeReason(reason);
+        setShowUpgradePrompt(true);
+        return;
+      }
+      navigation.navigate("CreateDecisionScreen");
+    } catch (err) {
+      console.error("Error checking tier:", err);
+      // Allow navigation on error to not block users
+      navigation.navigate("CreateDecisionScreen");
+    }
+  };
+
+  const handleUpgrade = () => {
+    setShowUpgradePrompt(false);
+    navigation.navigate("SubscriptionScreen" as any);
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -181,6 +211,7 @@ const HomeScreen = () => {
   );
 
   return (
+    <>
     <LinearGradient
       colors={gradientColors}
       start={{ x: 0, y: 0 }}
@@ -221,7 +252,7 @@ const HomeScreen = () => {
                 styles.primaryButton,
                 { backgroundColor: theme.colors.primary },
               ]}
-              onPress={() => navigation.navigate("CreateDecisionScreen")}
+              onPress={handleCreateDecision}
             >
               <Icon name="add" size={18} color="#fff" />
               <Text style={styles.primaryButtonText}>New Decision</Text>
@@ -261,9 +292,7 @@ const HomeScreen = () => {
                     styles.primaryButton,
                     { backgroundColor: theme.colors.primary, flex: 1 },
                   ]}
-                  onPress={() =>
-                    navigation.navigate("CreateDecisionScreen")
-                  }
+                  onPress={handleCreateDecision}
                 >
                   <Icon name="add" size={18} color="#fff" />
                   <Text style={styles.primaryButtonText}>New Decision</Text>
@@ -321,6 +350,15 @@ const HomeScreen = () => {
         />
       )}
     </LinearGradient>
+
+      <UpgradePrompt
+        visible={showUpgradePrompt}
+        onClose={() => setShowUpgradePrompt(false)}
+        onUpgrade={handleUpgrade}
+        feature="Create More Decisions"
+        reason={upgradeReason}
+      />
+    </>
   );
 };
 

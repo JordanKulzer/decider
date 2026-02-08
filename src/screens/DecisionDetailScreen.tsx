@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useLayoutEffect } from "react";
+import React, { useState, useCallback, useMemo, useLayoutEffect, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRoute, useNavigation } from "@react-navigation/native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
-import * as Clipboard from "expo-clipboard";
 import { supabase } from "../lib/supabase";
 import { isDemoMode, DEMO_USER_ID } from "../lib/demoMode";
 import {
@@ -43,8 +42,10 @@ import ResultsView from "../components/ResultsView";
 import ConstraintsSummary from "../components/ConstraintsSummary";
 import AdvanceVoteButton from "../components/AdvanceVoteButton";
 import CommentSection from "../components/CommentSection";
+import OptionMetadataInput, { OptionMetadata } from "../components/OptionMetadataInput";
 import OrganizerMenu from "../components/OrganizerMenu";
 import MembersButton from "../components/MembersButton";
+import InviteFriendsModal from "../components/InviteFriendsModal";
 import type {
   Decision,
   DecisionMember,
@@ -71,10 +72,16 @@ const DecisionDetailScreen = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   // Option submission form
   const [newOptionTitle, setNewOptionTitle] = useState("");
   const [newOptionDesc, setNewOptionDesc] = useState("");
+  const [newOptionMetadata, setNewOptionMetadata] = useState<OptionMetadata>({});
+  const [liveValidation, setLiveValidation] = useState<{
+    passes: boolean;
+    violations: Array<{ constraint_id: string; reason: string }>;
+  }>({ passes: true, violations: [] });
 
   const gradientColors = useMemo(() => {
     return theme.dark
@@ -127,17 +134,31 @@ const DecisionDetailScreen = () => {
     }, [loadData])
   );
 
+  // Live validation for option form
+  useEffect(() => {
+    const result = validateOptionAgainstConstraints(
+      {
+        title: newOptionTitle,
+        description: newOptionDesc || null,
+        metadata: Object.keys(newOptionMetadata).length > 0 ? newOptionMetadata : null,
+      },
+      constraints
+    );
+    setLiveValidation(result);
+  }, [newOptionTitle, newOptionDesc, newOptionMetadata, constraints]);
+
   const isOrganizer = decision?.created_by === userId;
   const currentMember = members.find((m) => m.user_id === userId);
   const hasVoted = currentMember?.has_voted || false;
 
   const handleAddConstraint = async (
     type: ConstraintType,
-    value: Record<string, any>
+    value: Record<string, any>,
+    weight?: number
   ) => {
     if (!userId || !decision) return;
     try {
-      await addConstraint(decision.id, userId, type, value);
+      await addConstraint(decision.id, userId, type, value, weight || 1);
       await loadData();
       Toast.show({ type: "success", text1: "Constraint added", position: "bottom" });
     } catch (err: any) {
@@ -163,8 +184,9 @@ const DecisionDetailScreen = () => {
   const handleAddOption = async () => {
     if (!userId || !decision || !newOptionTitle.trim()) return;
 
+    const metadata = Object.keys(newOptionMetadata).length > 0 ? newOptionMetadata : null;
     const validation = validateOptionAgainstConstraints(
-      { title: newOptionTitle, description: newOptionDesc || null, metadata: null },
+      { title: newOptionTitle, description: newOptionDesc || null, metadata },
       constraints
     );
 
@@ -174,12 +196,13 @@ const DecisionDetailScreen = () => {
         userId,
         newOptionTitle.trim(),
         newOptionDesc.trim() || null,
-        null,
+        metadata,
         validation.passes,
         validation.violations.length > 0 ? validation.violations : null
       );
       setNewOptionTitle("");
       setNewOptionDesc("");
+      setNewOptionMetadata({});
       await loadData();
       Toast.show({ type: "success", text1: "Option added", position: "bottom" });
     } catch (err: any) {
@@ -225,17 +248,6 @@ const DecisionDetailScreen = () => {
         position: "bottom",
       });
     }
-  };
-
-  const handleCopyInviteCode = async () => {
-    if (!decision) return;
-    await Clipboard.setStringAsync(decision.invite_code);
-    Toast.show({
-      type: "success",
-      text1: "Invite code copied!",
-      text2: decision.invite_code,
-      position: "bottom",
-    });
   };
 
   const handleVoteSubmitted = () => {
@@ -365,13 +377,13 @@ const DecisionDetailScreen = () => {
           <CountdownTimer lockTime={decision.lock_time} onExpired={loadData} />
           <TouchableOpacity
             style={styles.inviteButton}
-            onPress={handleCopyInviteCode}
+            onPress={() => setShowInviteModal(true)}
           >
-            <Icon name="content-copy" size={14} color={theme.colors.primary} />
+            <Icon name="person-add" size={14} color={theme.colors.primary} />
             <Text
               style={[styles.inviteCode, { color: theme.colors.primary }]}
             >
-              {decision.invite_code}
+              Invite
             </Text>
           </TouchableOpacity>
         </View>
@@ -400,7 +412,10 @@ const DecisionDetailScreen = () => {
               exclusions — these are filters, not votes.
             </Text>
 
-            <ConstraintInput onSubmit={handleAddConstraint} />
+            <ConstraintInput
+              onSubmit={handleAddConstraint}
+              showWeighting={decision?.constraint_weights_enabled ?? false}
+            />
 
             {/* Existing constraints */}
             {constraints.map((c) => (
@@ -489,8 +504,8 @@ const DecisionDetailScreen = () => {
               {optionCount < 2 && " At least 2 options are needed to start voting."}
             </Text>
 
-            {/* Constraints summary */}
-            <ConstraintsSummary constraints={constraints} />
+            {/* Constraints summary - expanded by default when adding options */}
+            <ConstraintsSummary constraints={constraints} defaultExpanded={constraints.length > 0} />
 
             {/* Option submission form */}
             {canSubmitOptions && !atMaxOptions && (
@@ -514,6 +529,30 @@ const DecisionDetailScreen = () => {
                   theme={{ colors: { primary: "#2563eb" } }}
                   dense
                 />
+
+                {/* Dynamic metadata inputs based on constraints */}
+                <OptionMetadataInput
+                  constraints={constraints}
+                  metadata={newOptionMetadata}
+                  onMetadataChange={setNewOptionMetadata}
+                  violations={liveValidation.violations}
+                />
+
+                {/* Validation warning */}
+                {!liveValidation.passes && newOptionTitle.trim() && (
+                  <View
+                    style={[
+                      styles.validationWarning,
+                      { backgroundColor: `${theme.colors.error}15` },
+                    ]}
+                  >
+                    <Icon name="warning" size={16} color={theme.colors.error} />
+                    <Text style={[styles.validationWarningText, { color: theme.colors.error }]}>
+                      This option has constraint violations. You can still add it, but it will be flagged.
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity
                   style={[
                     styles.addOptionButton,
@@ -558,6 +597,7 @@ const DecisionDetailScreen = () => {
                     targetId={o.id}
                     targetType="option"
                     onCommentAdded={loadData}
+                    isOrganizer={isOrganizer}
                   />
                 )}
               </View>
@@ -647,6 +687,19 @@ const DecisionDetailScreen = () => {
           </View>
         )}
       </ScrollView>
+
+      {/* Invite Friends Modal */}
+      {userId && (
+        <InviteFriendsModal
+          visible={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          decisionId={decision.id}
+          decisionTitle={decision.title}
+          inviteCode={decision.invite_code}
+          userId={userId}
+          onInvited={loadData}
+        />
+      )}
     </LinearGradient>
   );
 };
@@ -750,6 +803,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
     fontFamily: "Rubik_500Medium",
+  },
+  validationWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  validationWarningText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "Rubik_400Regular",
   },
   maxNotice: {
     fontSize: 13,

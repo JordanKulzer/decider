@@ -103,13 +103,14 @@ export const addConstraint = async (
   decisionId: string,
   userId: string,
   type: string,
-  value: Record<string, any>
+  value: Record<string, any>,
+  weight: number = 1
 ) => {
   if (isDemoMode()) return mock.mockAddConstraint(decisionId, userId, type, value);
 
   const { data, error } = await supabase
     .from("constraints")
-    .insert([{ decision_id: decisionId, user_id: userId, type, value }])
+    .insert([{ decision_id: decisionId, user_id: userId, type, value, weight }])
     .select()
     .single();
 
@@ -418,7 +419,7 @@ export const fetchComments = async (
   const { data, error } = await supabase
     .from("comments")
     .select(`
-      id, decision_id, user_id, option_id, constraint_id, parent_id, content, created_at,
+      id, decision_id, user_id, option_id, constraint_id, parent_id, content, created_at, deleted_at, deleted_by,
       users:user_id (username)
     `)
     .eq("decision_id", decisionId)
@@ -435,6 +436,8 @@ export const fetchComments = async (
     parent_id: c.parent_id,
     content: c.content,
     created_at: c.created_at,
+    deleted_at: c.deleted_at,
+    deleted_by: c.deleted_by,
     username: c.users?.username,
   }));
 
@@ -496,6 +499,23 @@ export const removeComment = async (commentId: string) => {
   if (error) throw error;
 };
 
+export const softDeleteComment = async (
+  commentId: string,
+  deletedByUserId: string
+) => {
+  if (isDemoMode()) return mock.mockSoftDeleteComment?.(commentId, deletedByUserId);
+
+  const { error } = await supabase
+    .from("comments")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: deletedByUserId,
+    })
+    .eq("id", commentId);
+
+  if (error) throw error;
+};
+
 // ─── MEMBER MANAGEMENT ───
 
 export const removeMember = async (
@@ -544,4 +564,154 @@ export const transferOrganizer = async (
     .eq("user_id", newOrganizerId);
 
   if (newOrgError) throw newOrgError;
+};
+
+// ─── DECISION DUPLICATION ───
+
+export interface PastDecisionSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  constraint_count: number;
+  option_count: number;
+  voting_mechanism: string;
+}
+
+export const fetchUserPastDecisions = async (
+  userId: string
+): Promise<PastDecisionSummary[]> => {
+  if (isDemoMode()) return mock.mockFetchUserPastDecisions?.(userId) || [];
+
+  const { data, error } = await supabase
+    .from("decisions")
+    .select(`
+      id, title, created_at, voting_mechanism,
+      constraints:constraints(count),
+      options:options(count)
+    `)
+    .eq("created_by", userId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) throw error;
+
+  return (data || []).map((d: any) => ({
+    id: d.id,
+    title: d.title,
+    created_at: d.created_at,
+    voting_mechanism: d.voting_mechanism,
+    constraint_count: d.constraints?.[0]?.count || 0,
+    option_count: d.options?.[0]?.count || 0,
+  }));
+};
+
+export interface DuplicateDecisionResult {
+  decision: Decision;
+  constraintsCopied: number;
+  optionsCopied: number;
+}
+
+export const duplicateDecision = async (
+  sourceDecisionId: string,
+  newTitle: string,
+  newDescription: string | null,
+  newLockTime: string,
+  userId: string
+): Promise<DuplicateDecisionResult> => {
+  if (isDemoMode()) {
+    return mock.mockDuplicateDecision?.(sourceDecisionId, newTitle, newDescription, newLockTime, userId) as DuplicateDecisionResult;
+  }
+
+  // Fetch source decision
+  const { data: sourceDecision, error: sourceError } = await supabase
+    .from("decisions")
+    .select("*")
+    .eq("id", sourceDecisionId)
+    .single();
+
+  if (sourceError) throw sourceError;
+
+  // Generate new invite code
+  const { data: codeData } = await supabase.rpc("generate_invite_code");
+  const inviteCode = codeData || Math.random().toString(36).substring(2, 8).toUpperCase();
+
+  // Create new decision with source settings
+  const { data: newDecision, error: createError } = await supabase
+    .from("decisions")
+    .insert([{
+      title: newTitle,
+      description: newDescription,
+      type_label: sourceDecision.type_label,
+      created_by: userId,
+      lock_time: newLockTime,
+      status: "constraints", // Always start in constraints phase
+      voting_mechanism: sourceDecision.voting_mechanism,
+      max_options: sourceDecision.max_options,
+      option_submission: sourceDecision.option_submission,
+      reveal_votes_after_lock: sourceDecision.reveal_votes_after_lock,
+      invite_code: inviteCode,
+    }])
+    .select()
+    .single();
+
+  if (createError) throw createError;
+
+  // Copy constraints
+  const { data: sourceConstraints, error: constraintsError } = await supabase
+    .from("constraints")
+    .select("type, value")
+    .eq("decision_id", sourceDecisionId);
+
+  if (constraintsError) throw constraintsError;
+
+  let constraintsCopied = 0;
+  if (sourceConstraints && sourceConstraints.length > 0) {
+    const newConstraints = sourceConstraints.map((c: any) => ({
+      decision_id: newDecision.id,
+      user_id: userId,
+      type: c.type,
+      value: c.value,
+    }));
+
+    const { error: insertConstraintsError } = await supabase
+      .from("constraints")
+      .insert(newConstraints);
+
+    if (insertConstraintsError) throw insertConstraintsError;
+    constraintsCopied = newConstraints.length;
+  }
+
+  // Copy options
+  const { data: sourceOptions, error: optionsError } = await supabase
+    .from("options")
+    .select("title, description, metadata, passes_constraints, constraint_violations")
+    .eq("decision_id", sourceDecisionId);
+
+  if (optionsError) throw optionsError;
+
+  let optionsCopied = 0;
+  if (sourceOptions && sourceOptions.length > 0) {
+    const newOptions = sourceOptions.map((o: any) => ({
+      decision_id: newDecision.id,
+      submitted_by: userId,
+      title: o.title,
+      description: o.description,
+      metadata: o.metadata,
+      passes_constraints: o.passes_constraints,
+      constraint_violations: o.constraint_violations,
+    }));
+
+    const { error: insertOptionsError } = await supabase
+      .from("options")
+      .insert(newOptions);
+
+    if (insertOptionsError) throw insertOptionsError;
+    optionsCopied = newOptions.length;
+  }
+
+  return {
+    decision: newDecision as Decision,
+    constraintsCopied,
+    optionsCopied,
+  };
 };

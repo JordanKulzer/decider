@@ -8,6 +8,8 @@ export type ConstraintType =
   | "distance"
   | "duration"
   | "exclusion";
+export type UserTier = "free" | "pro";
+export type SubscriptionStatus = "none" | "active" | "canceled" | "past_due";
 
 export interface Decision {
   id: string;
@@ -23,6 +25,8 @@ export interface Decision {
   reveal_votes_after_lock: boolean;
   invite_code: string;
   created_at: string;
+  silent_voting: boolean;
+  constraint_weights_enabled: boolean;
 }
 
 export interface DecisionMember {
@@ -42,6 +46,7 @@ export interface Constraint {
   user_id: string;
   type: ConstraintType;
   value: Record<string, any>;
+  weight: number;
   created_at: string;
   username?: string;
 }
@@ -100,6 +105,72 @@ export interface Comment {
   parent_id: string | null;
   content: string;
   created_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
   username?: string;
   replies?: Comment[];
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  tier: UserTier;
+  subscription_status: SubscriptionStatus;
+  subscription_expires_at: string | null;
+}
+
+export interface Subscription {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_subscription_id: string | null;
+  plan: string;
+  status: string;
+  current_period_start: string;
+  current_period_end: string;
+  created_at: string;
+  canceled_at: string | null;
+}
+
+export const TIER_LIMITS = {
+  free: {
+    activeDecisions: 2,
+    maxParticipants: 5,
+    historyDays: 7,
+    silentVoting: false,
+    constraintWeighting: false,
+  },
+  pro: {
+    activeDecisions: Infinity,
+    maxParticipants: Infinity,
+    historyDays: Infinity,
+    silentVoting: true,
+    constraintWeighting: true,
+  },
+} as const;
+
+// Friends Feature
+export type FriendshipStatus = "pending" | "accepted" | "blocked";
+
+export interface Friend {
+  id: string;
+  user_id: string;
+  friend_id: string;
+  status: FriendshipStatus;
+  created_at: string;
+  updated_at: string;
+  // Populated fields
+  friend_username?: string;
+  friend_email?: string;
+}
+
+export interface FriendRequest {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  status: FriendshipStatus;
+  created_at: string;
+  from_username?: string;
+  from_email?: string;
 }
