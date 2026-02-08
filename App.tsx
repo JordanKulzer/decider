@@ -27,6 +27,7 @@ import JoinDecisionScreen from "./src/screens/JoinDecisionScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import SubscriptionScreen from "./src/screens/SubscriptionScreen";
 import FriendsScreen from "./src/screens/FriendsScreen";
+import SettingsScreen from "./src/screens/SettingsScreen";
 import { SubscriptionProvider } from "./src/context/SubscriptionContext";
 import HeaderLogo from "./src/components/HeaderLogo";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
@@ -323,6 +324,48 @@ const App: React.FC = () => {
                       onLogout={handleLogout}
                       isDarkTheme={isDarkTheme}
                       toggleTheme={toggleTheme}
+                    />
+                  )}
+                </Stack.Screen>
+
+                <Stack.Screen
+                  name="SettingsScreen"
+                  options={({ navigation }) => ({
+                    animation: "slide_from_right",
+                    headerTitle: () => <HeaderLogo />,
+                    headerTitleAlign: "center" as const,
+                    headerStyle: {
+                      backgroundColor: paperTheme.colors.surface,
+                    },
+                    headerShadowVisible: false,
+                    headerBackTitleVisible: false,
+                    headerTintColor: paperTheme.colors.onBackground,
+                    title: "Settings",
+                    headerLeft: () => (
+                      <TouchableOpacity
+                        style={{
+                          height: 30,
+                          width: 30,
+                          borderRadius: 20,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        onPress={() => navigation.goBack()}
+                      >
+                        <Icon
+                          name="arrow-back"
+                          size={24}
+                          color={paperTheme.colors.onBackground}
+                        />
+                      </TouchableOpacity>
+                    ),
+                  })}
+                >
+                  {() => (
+                    <SettingsScreen
+                      isDarkTheme={isDarkTheme}
+                      toggleTheme={toggleTheme}
+                      onLogout={handleLogout}
                     />
                   )}
                 </Stack.Screen>
