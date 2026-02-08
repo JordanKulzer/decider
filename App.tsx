@@ -27,7 +27,7 @@ import JoinDecisionScreen from "./src/screens/JoinDecisionScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import SubscriptionScreen from "./src/screens/SubscriptionScreen";
 import FriendsScreen from "./src/screens/FriendsScreen";
-import SettingsScreen from "./src/screens/SettingsScreen";
+
 import { SubscriptionProvider } from "./src/context/SubscriptionContext";
 import HeaderLogo from "./src/components/HeaderLogo";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
@@ -329,7 +329,7 @@ const App: React.FC = () => {
                 </Stack.Screen>
 
                 <Stack.Screen
-                  name="SettingsScreen"
+                  name="ProfileScreen"
                   options={({ navigation }) => ({
                     animation: "slide_from_right",
                     headerTitle: () => <HeaderLogo />,
@@ -340,7 +340,7 @@ const App: React.FC = () => {
                     headerShadowVisible: false,
                     headerBackTitleVisible: false,
                     headerTintColor: paperTheme.colors.onBackground,
-                    title: "Settings",
+                    title: "Profile",
                     headerLeft: () => (
                       <TouchableOpacity
                         style={{
@@ -362,7 +362,7 @@ const App: React.FC = () => {
                   })}
                 >
                   {() => (
-                    <SettingsScreen
+                    <ProfileScreen
                       isDarkTheme={isDarkTheme}
                       toggleTheme={toggleTheme}
                       onLogout={handleLogout}
@@ -385,11 +385,6 @@ const App: React.FC = () => {
                     name: "JoinDecisionScreen",
                     component: JoinDecisionScreen,
                     title: "Join Decision",
-                  },
-                  {
-                    name: "ProfileScreen",
-                    component: ProfileScreen,
-                    title: "Profile",
                   },
                   {
                     name: "SubscriptionScreen",

@@ -5,7 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  FlatList,
+  ScrollView,
   ActivityIndicator,
   Share,
 } from "react-native";
@@ -13,8 +13,9 @@ import { useTheme } from "react-native-paper";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import * as Clipboard from "expo-clipboard";
-import { isDemoMode, DEMO_USER_ID } from "../lib/demoMode";
+import { isDemoMode } from "../lib/demoMode";
 import { mockGetInvitableFriends, mockJoinDecision } from "../lib/mockData";
+import { getInvitableFriends, inviteFriendToDecision } from "../lib/friends";
 import type { Friend } from "../types/decisions";
 
 interface InviteFriendsModalProps {
@@ -56,8 +57,8 @@ const InviteFriendsModal: React.FC<InviteFriendsModalProps> = ({
         const data = await mockGetInvitableFriends(userId, decisionId);
         setFriends(data);
       } else {
-        // TODO: Implement real Supabase query
-        setFriends([]);
+        const data = await getInvitableFriends(userId, decisionId);
+        setFriends(data);
       }
     } catch (err) {
       console.error("Error loading friends:", err);
@@ -69,10 +70,9 @@ const InviteFriendsModal: React.FC<InviteFriendsModalProps> = ({
     setInviting(friend.friend_id);
     try {
       if (isDemoMode()) {
-        // In demo mode, directly add them as a member
         await mockJoinDecision(decisionId, friend.friend_id);
       } else {
-        // TODO: Send invite notification
+        await inviteFriendToDecision(decisionId, friend.friend_id);
       }
 
       setInvitedIds((prev) => new Set([...prev, friend.friend_id]));
@@ -120,13 +120,14 @@ const InviteFriendsModal: React.FC<InviteFriendsModalProps> = ({
       ? decisionTitle.substring(0, 30) + "..."
       : decisionTitle;
 
-  const renderFriendItem = ({ item }: { item: Friend }) => {
+  const renderFriendItem = (item: Friend) => {
     const initial = item.friend_username?.charAt(0).toUpperCase() || "?";
     const isInvited = invitedIds.has(item.friend_id);
     const isInviting = inviting === item.friend_id;
 
     return (
       <View
+        key={item.id}
         style={[
           styles.friendRow,
           { backgroundColor: theme.colors.surfaceVariant },
@@ -179,12 +180,17 @@ const InviteFriendsModal: React.FC<InviteFriendsModalProps> = ({
       transparent
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <TouchableOpacity
+        style={styles.overlay}
+        activeOpacity={1}
+        onPress={onClose}
+      >
         <View
           style={[
             styles.container,
             { backgroundColor: theme.colors.surface },
           ]}
+          onStartShouldSetResponder={() => true}
         >
           {/* Header */}
           <View style={styles.header}>
@@ -196,88 +202,86 @@ const InviteFriendsModal: React.FC<InviteFriendsModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>
-            {truncatedTitle}
-          </Text>
-
-          {/* Invite Code Section */}
-          <View
-            style={[
-              styles.codeSection,
-              {
-                backgroundColor: (theme as any).custom?.card || theme.colors.surfaceVariant,
-                borderColor: (theme as any).custom?.cardBorder || theme.colors.outline,
-              },
-            ]}
+          <ScrollView
+            style={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
           >
-            <View style={styles.codeHeader}>
-              <Icon name="vpn-key" size={20} color={theme.colors.primary} />
-              <Text style={[styles.codeLabel, { color: theme.colors.onSurfaceVariant }]}>
-                Invite Code
+            <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>
+              {truncatedTitle}
+            </Text>
+
+            {/* Invite Code Section */}
+            <View
+              style={[
+                styles.codeSection,
+                {
+                  backgroundColor: (theme as any).custom?.card || theme.colors.surfaceVariant,
+                  borderColor: (theme as any).custom?.cardBorder || theme.colors.outline,
+                },
+              ]}
+            >
+              <View style={styles.codeHeader}>
+                <Icon name="vpn-key" size={20} color={theme.colors.primary} />
+                <Text style={[styles.codeLabel, { color: theme.colors.onSurfaceVariant }]}>
+                  Invite Code
+                </Text>
+              </View>
+              <Text style={[styles.codeText, { color: theme.colors.onBackground }]}>
+                {inviteCode}
               </Text>
-            </View>
-            <Text style={[styles.codeText, { color: theme.colors.onBackground }]}>
-              {inviteCode}
-            </Text>
-            <View style={styles.codeActions}>
-              <TouchableOpacity
-                style={[styles.codeAction, { borderColor: theme.colors.primary }]}
-                onPress={handleCopyCode}
-              >
-                <Icon name="content-copy" size={16} color={theme.colors.primary} />
-                <Text style={[styles.codeActionText, { color: theme.colors.primary }]}>
-                  Copy
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.codeAction, { backgroundColor: theme.colors.primary }]}
-                onPress={handleShare}
-              >
-                <Icon name="share" size={16} color="#fff" />
-                <Text style={[styles.codeActionText, { color: "#fff" }]}>
-                  Share
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Friends Section */}
-          <View style={styles.friendsSection}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.onBackground }]}>
-              Invite Friends
-            </Text>
-
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
+              <View style={styles.codeActions}>
+                <TouchableOpacity
+                  style={[styles.codeAction, { borderColor: theme.colors.primary }]}
+                  onPress={handleCopyCode}
+                >
+                  <Icon name="content-copy" size={16} color={theme.colors.primary} />
+                  <Text style={[styles.codeActionText, { color: theme.colors.primary }]}>
+                    Copy
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.codeAction, { backgroundColor: theme.colors.primary }]}
+                  onPress={handleShare}
+                >
+                  <Icon name="share" size={16} color="#fff" />
+                  <Text style={[styles.codeActionText, { color: "#fff" }]}>
+                    Share
+                  </Text>
+                </TouchableOpacity>
               </View>
-            ) : friends.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Icon
-                  name="people-outline"
-                  size={48}
-                  color={theme.colors.onSurfaceVariant}
-                  style={{ opacity: 0.4, marginBottom: 12 }}
-                />
-                <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>
-                  {friends.length === 0
-                    ? "No friends to invite. Add friends or share the code above!"
-                    : "All your friends are already in this decision"}
-                </Text>
-              </View>
-            ) : (
-              <FlatList
-                data={friends}
-                renderItem={renderFriendItem}
-                keyExtractor={(item) => item.id}
-                contentContainerStyle={styles.friendsList}
-                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                style={styles.flatList}
-              />
-            )}
-          </View>
+            </View>
+
+            {/* Friends Section */}
+            <View style={styles.friendsSection}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.onBackground }]}>
+                Invite Friends
+              </Text>
+
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={theme.colors.primary} />
+                </View>
+              ) : friends.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Icon
+                    name="people-outline"
+                    size={48}
+                    color={theme.colors.onSurfaceVariant}
+                    style={{ opacity: 0.4, marginBottom: 12 }}
+                  />
+                  <Text style={[styles.emptyText, { color: theme.colors.onSurfaceVariant }]}>
+                    No friends to invite. Add friends or share the code above!
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.friendsList}>
+                  {friends.map((friend) => renderFriendItem(friend))}
+                </View>
+              )}
+            </View>
+          </ScrollView>
         </View>
-      </View>
+      </TouchableOpacity>
     </Modal>
   );
 };
@@ -293,6 +297,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     maxHeight: "80%",
     paddingTop: 16,
+  },
+  scrollContent: {
+    paddingBottom: 20,
   },
   header: {
     flexDirection: "row",
@@ -384,11 +391,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 20,
   },
-  flatList: {
-    maxHeight: 300,
-  },
   friendsList: {
-    paddingBottom: 20,
+    gap: 8,
   },
   friendRow: {
     flexDirection: "row",

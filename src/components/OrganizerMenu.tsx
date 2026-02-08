@@ -15,6 +15,7 @@ import Toast from "react-native-toast-message";
 import { supabase } from "../lib/supabase";
 import { isDemoMode } from "../lib/demoMode";
 import { removeMember, transferOrganizer } from "../lib/decisions";
+import InviteFriendsModal from "./InviteFriendsModal";
 import type { DecisionMember } from "../types/decisions";
 
 interface OrganizerMenuProps {
@@ -24,6 +25,7 @@ interface OrganizerMenuProps {
   members?: DecisionMember[];
   currentUserId?: string;
   showVoteStatus?: boolean;
+  inviteCode?: string;
   onRevertToConstraints?: () => void;
   onRevertToOptions?: () => void;
   onAdvanceToOptions?: () => void;
@@ -40,6 +42,7 @@ const OrganizerMenu: React.FC<OrganizerMenuProps> = ({
   members = [],
   currentUserId,
   showVoteStatus,
+  inviteCode,
   onRevertToConstraints,
   onRevertToOptions,
   onAdvanceToOptions,
@@ -55,6 +58,7 @@ const OrganizerMenu: React.FC<OrganizerMenuProps> = ({
   const [membersVisible, setMembersVisible] = useState(false);
   const [selectedMember, setSelectedMember] = useState<DecisionMember | null>(null);
   const [manageMemberVisible, setManageMemberVisible] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   const truncatedTitle =
     decisionTitle.length > 25
@@ -541,6 +545,27 @@ const OrganizerMenu: React.FC<OrganizerMenuProps> = ({
               })}
             </ScrollView>
 
+            {/* Invite Friends button */}
+            {inviteCode && (
+              <TouchableOpacity
+                style={[
+                  styles.inviteFriendsButton,
+                  { backgroundColor: `${theme.colors.primary}15` },
+                ]}
+                onPress={() => {
+                  setMembersVisible(false);
+                  setShowInviteModal(true);
+                }}
+              >
+                <Icon name="person-add" size={20} color={theme.colors.primary} />
+                <Text
+                  style={[styles.inviteFriendsText, { color: theme.colors.primary }]}
+                >
+                  Invite Friends
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => setMembersVisible(false)}
@@ -631,6 +656,19 @@ const OrganizerMenu: React.FC<OrganizerMenuProps> = ({
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Invite Friends Modal */}
+      {inviteCode && currentUserId && (
+        <InviteFriendsModal
+          visible={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          decisionId={decisionId}
+          decisionTitle={decisionTitle}
+          inviteCode={inviteCode}
+          userId={currentUserId}
+          onInvited={onMemberChanged}
+        />
+      )}
     </>
   );
 };
@@ -770,6 +808,19 @@ const styles = StyleSheet.create({
   roleTag: {
     fontSize: 12,
     fontWeight: "600",
+    fontFamily: "Rubik_500Medium",
+  },
+  inviteFriendsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  inviteFriendsText: {
+    fontSize: 15,
+    fontWeight: "500",
     fontFamily: "Rubik_500Medium",
   },
   closeButton: {

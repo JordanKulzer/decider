@@ -48,12 +48,6 @@ const AdvanceVoteButton: React.FC<AdvanceVoteButtonProps> = ({
   const threshold = Math.ceil(memberCount / 2); // Majority required
   const thresholdReached = voteCount >= threshold;
 
-  useEffect(() => {
-    if (thresholdReached && onThresholdReached) {
-      onThresholdReached();
-    }
-  }, [thresholdReached]);
-
   const handleVote = async () => {
     setLoading(true);
     try {
@@ -90,76 +84,91 @@ const AdvanceVoteButton: React.FC<AdvanceVoteButtonProps> = ({
     .join(", ");
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          backgroundColor: (theme as any).custom?.card || theme.colors.surface,
-          borderColor: thresholdReached
-            ? "#22c55e"
-            : (theme as any).custom?.cardBorder || theme.colors.outline,
-        },
-      ]}
-    >
-      <View style={styles.infoRow}>
-        <Icon
-          name="how-to-vote"
-          size={20}
-          color={thresholdReached ? "#22c55e" : theme.colors.primary}
-        />
-        <View style={styles.textContainer}>
-          <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-            Ready to move to {nextPhase}?
-          </Text>
-          <Text
-            style={[styles.count, { color: theme.colors.onSurfaceVariant }]}
-          >
-            {voteCount}/{memberCount} members voted ({threshold} needed)
-          </Text>
-          {voteCount > 0 && (
-            <Text
-              style={[styles.voters, { color: theme.colors.onSurfaceVariant }]}
-              numberOfLines={1}
-            >
-              {voterNames}
-            </Text>
-          )}
-        </View>
-      </View>
-
-      <TouchableOpacity
+    <View style={styles.wrapper}>
+      <View
         style={[
-          styles.voteButton,
+          styles.container,
           {
-            backgroundColor: hasVoted
-              ? theme.colors.surfaceVariant
-              : theme.colors.primary,
+            backgroundColor: (theme as any).custom?.card || theme.colors.surface,
+            borderColor: thresholdReached
+              ? "#22c55e"
+              : (theme as any).custom?.cardBorder || theme.colors.outline,
           },
         ]}
-        onPress={handleVote}
-        disabled={loading}
       >
-        <Icon
-          name={hasVoted ? "check" : "thumb-up"}
-          size={16}
-          color={hasVoted ? theme.colors.onSurfaceVariant : "#fff"}
-        />
-        <Text
+        <View style={styles.infoRow}>
+          <Icon
+            name="how-to-vote"
+            size={20}
+            color={thresholdReached ? "#22c55e" : theme.colors.primary}
+          />
+          <View style={styles.textContainer}>
+            <Text style={[styles.title, { color: theme.colors.onBackground }]}>
+              Ready to move to {nextPhase}?
+            </Text>
+            <Text
+              style={[styles.count, { color: theme.colors.onSurfaceVariant }]}
+            >
+              {voteCount}/{memberCount} members voted ({threshold} needed)
+            </Text>
+            {voteCount > 0 && (
+              <Text
+                style={[styles.voters, { color: theme.colors.onSurfaceVariant }]}
+                numberOfLines={1}
+              >
+                {voterNames}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <TouchableOpacity
           style={[
-            styles.voteButtonText,
+            styles.voteButton,
             {
-              color: hasVoted ? theme.colors.onSurfaceVariant : "#fff",
+              backgroundColor: hasVoted
+                ? theme.colors.surfaceVariant
+                : theme.colors.primary,
             },
           ]}
+          onPress={handleVote}
+          disabled={loading}
         >
-          {hasVoted ? "Voted" : "Ready"}
-        </Text>
-      </TouchableOpacity>
+          <Icon
+            name={hasVoted ? "check" : "thumb-up"}
+            size={16}
+            color={hasVoted ? theme.colors.onSurfaceVariant : "#fff"}
+          />
+          <Text
+            style={[
+              styles.voteButtonText,
+              {
+                color: hasVoted ? theme.colors.onSurfaceVariant : "#fff",
+              },
+            ]}
+          >
+            {hasVoted ? "Voted" : "Ready"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {thresholdReached && onThresholdReached && (
+        <TouchableOpacity
+          style={styles.advanceButton}
+          onPress={onThresholdReached}
+        >
+          <Text style={styles.advanceButtonText}>Move to {nextPhase}</Text>
+          <Icon name="arrow-forward" size={18} color="#fff" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  wrapper: {
+    marginTop: 12,
+  },
   container: {
     flexDirection: "row",
     alignItems: "center",
@@ -167,7 +176,6 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    marginTop: 12,
   },
   infoRow: {
     flexDirection: "row",
@@ -206,6 +214,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     fontFamily: "Rubik_500Medium",
+  },
+  advanceButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#22c55e",
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginTop: 10,
+    gap: 8,
+  },
+  advanceButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    fontFamily: "Rubik_600SemiBold",
   },
 });
 

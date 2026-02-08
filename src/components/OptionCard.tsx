@@ -17,9 +17,7 @@ const OptionCard: React.FC<OptionCardProps> = ({
 }) => {
   const theme = useTheme();
 
-  const borderLeftColor = option.passes_constraints
-    ? (theme as any).custom?.phaseComplete || "#22c55e"
-    : theme.colors.error;
+  const borderLeftColor = (theme as any).custom?.cardBorder || theme.colors.outline;
 
   const handleDelete = () => {
     Alert.alert(
@@ -74,20 +72,6 @@ const OptionCard: React.FC<OptionCardProps> = ({
         </Text>
       ) : null}
 
-      {!option.passes_constraints && option.constraint_violations ? (
-        <View style={styles.violationContainer}>
-          {option.constraint_violations.map((v, i) => (
-            <View key={i} style={styles.violationRow}>
-              <Icon name="warning" size={14} color={theme.colors.error} />
-              <Text
-                style={[styles.violationText, { color: theme.colors.error }]}
-              >
-                {v.reason}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
     </View>
   );
 };
@@ -114,19 +98,6 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 13,
     marginTop: 4,
-    fontFamily: "Rubik_400Regular",
-  },
-  violationContainer: {
-    marginTop: 8,
-    gap: 4,
-  },
-  violationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  violationText: {
-    fontSize: 12,
     fontFamily: "Rubik_400Regular",
   },
 });

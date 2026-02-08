@@ -19,7 +19,7 @@ const DEMO_MODE = !url || !anon;
 
 if (DEMO_MODE) {
   console.warn(
-    "Supabase env vars missing. Running in demo mode without backend connectivity."
+    "Supabase env vars missing. Running in demo mode without backend connectivity.",
   );
 }
 

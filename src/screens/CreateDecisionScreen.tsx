@@ -605,7 +605,10 @@ const CreateDecisionScreen = () => {
                 styles.stepperButton,
                 { borderColor: theme.colors.primary },
               ]}
-              onPress={() => setMaxOptions(Math.max(2, maxOptions - 1))}
+              onPress={() => {
+                if (maxOptions === 0) setMaxOptions(10);
+                else setMaxOptions(Math.max(2, maxOptions - 1));
+              }}
             >
               <Icon name="remove" size={20} color={theme.colors.primary} />
             </TouchableOpacity>
@@ -615,18 +618,34 @@ const CreateDecisionScreen = () => {
                 { color: theme.colors.onBackground },
               ]}
             >
-              {maxOptions}
+              {maxOptions === 0 ? "∞" : maxOptions}
             </Text>
             <TouchableOpacity
               style={[
                 styles.stepperButton,
                 { borderColor: theme.colors.primary },
               ]}
-              onPress={() => setMaxOptions(Math.min(10, maxOptions + 1))}
+              onPress={() => {
+                if (maxOptions >= 10) setMaxOptions(0);
+                else setMaxOptions(maxOptions + 1);
+              }}
             >
               <Icon name="add" size={20} color={theme.colors.primary} />
             </TouchableOpacity>
           </View>
+          {maxOptions === 0 && (
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.onSurfaceVariant,
+                textAlign: "center",
+                marginTop: 4,
+                fontFamily: "Rubik_400Regular",
+              }}
+            >
+              No limit on options
+            </Text>
+          )}
 
           {/* Reveal Votes */}
           <View style={styles.switchRow}>

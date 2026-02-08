@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useLayoutEffect, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useLayoutEffect } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { TextInput as PaperInput, useTheme } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
@@ -31,7 +33,6 @@ import {
   revertPhase,
   clearAdvanceVotes,
 } from "../lib/decisions";
-import { validateOptionAgainstConstraints } from "../utils/constraintValidation";
 import { formatLockTime } from "../utils/dateDisplay";
 import PhaseIndicator from "../components/PhaseIndicator";
 import ConstraintInput from "../components/ConstraintInput";
@@ -39,10 +40,8 @@ import OptionCard from "../components/OptionCard";
 import CountdownTimer from "../components/CountdownTimer";
 import VotingInterface from "../components/VotingInterface";
 import ResultsView from "../components/ResultsView";
-import ConstraintsSummary from "../components/ConstraintsSummary";
 import AdvanceVoteButton from "../components/AdvanceVoteButton";
 import CommentSection from "../components/CommentSection";
-import OptionMetadataInput, { OptionMetadata } from "../components/OptionMetadataInput";
 import OrganizerMenu from "../components/OrganizerMenu";
 import MembersButton from "../components/MembersButton";
 import InviteFriendsModal from "../components/InviteFriendsModal";
@@ -77,11 +76,6 @@ const DecisionDetailScreen = () => {
   // Option submission form
   const [newOptionTitle, setNewOptionTitle] = useState("");
   const [newOptionDesc, setNewOptionDesc] = useState("");
-  const [newOptionMetadata, setNewOptionMetadata] = useState<OptionMetadata>({});
-  const [liveValidation, setLiveValidation] = useState<{
-    passes: boolean;
-    violations: Array<{ constraint_id: string; reason: string }>;
-  }>({ passes: true, violations: [] });
 
   const gradientColors = useMemo(() => {
     return theme.dark
@@ -134,19 +128,6 @@ const DecisionDetailScreen = () => {
     }, [loadData])
   );
 
-  // Live validation for option form
-  useEffect(() => {
-    const result = validateOptionAgainstConstraints(
-      {
-        title: newOptionTitle,
-        description: newOptionDesc || null,
-        metadata: Object.keys(newOptionMetadata).length > 0 ? newOptionMetadata : null,
-      },
-      constraints
-    );
-    setLiveValidation(result);
-  }, [newOptionTitle, newOptionDesc, newOptionMetadata, constraints]);
-
   const isOrganizer = decision?.created_by === userId;
   const currentMember = members.find((m) => m.user_id === userId);
   const hasVoted = currentMember?.has_voted || false;
@@ -184,25 +165,18 @@ const DecisionDetailScreen = () => {
   const handleAddOption = async () => {
     if (!userId || !decision || !newOptionTitle.trim()) return;
 
-    const metadata = Object.keys(newOptionMetadata).length > 0 ? newOptionMetadata : null;
-    const validation = validateOptionAgainstConstraints(
-      { title: newOptionTitle, description: newOptionDesc || null, metadata },
-      constraints
-    );
-
     try {
       await addOption(
         decision.id,
         userId,
         newOptionTitle.trim(),
         newOptionDesc.trim() || null,
-        metadata,
-        validation.passes,
-        validation.violations.length > 0 ? validation.violations : null
+        null,
+        true,
+        null
       );
       setNewOptionTitle("");
       setNewOptionDesc("");
-      setNewOptionMetadata({});
       await loadData();
       Toast.show({ type: "success", text1: "Option added", position: "bottom" });
     } catch (err: any) {
@@ -315,6 +289,7 @@ const DecisionDetailScreen = () => {
               members={members}
               currentUserId={userId}
               showVoteStatus={decision.status === "voting"}
+              inviteCode={decision.invite_code}
               onRevertToConstraints={() => handleRevertPhase("constraints")}
               onRevertToOptions={() => handleRevertPhase("options")}
               onAdvanceToOptions={() => handleAdvancePhase("options")}
@@ -331,6 +306,7 @@ const DecisionDetailScreen = () => {
               currentUserId={userId}
               isOrganizer={false}
               showVoteStatus={decision.status === "voting"}
+              inviteCode={decision.invite_code}
               onMemberChanged={loadData}
               onLeft={() => navigation.goBack()}
             />
@@ -356,7 +332,7 @@ const DecisionDetailScreen = () => {
   const canSubmitOptions =
     decision.option_submission === "anyone" || isOrganizer;
   const optionCount = options.length;
-  const atMaxOptions = optionCount >= decision.max_options;
+  const atMaxOptions = decision.max_options > 0 && optionCount >= decision.max_options;
 
   return (
     <LinearGradient
@@ -365,7 +341,15 @@ const DecisionDetailScreen = () => {
       end={{ x: 1, y: 1 }}
       style={{ flex: 1 }}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Title */}
         <Text
           style={[styles.title, { color: theme.colors.onBackground }]}
@@ -476,6 +460,7 @@ const DecisionDetailScreen = () => {
                 userId={userId}
                 fromPhase="constraints"
                 members={members}
+                onThresholdReached={() => handleAdvancePhase("options")}
               />
             )}
           </View>
@@ -497,15 +482,12 @@ const DecisionDetailScreen = () => {
                 { color: theme.colors.onSurfaceVariant },
               ]}
             >
-              {optionCount}/{decision.max_options} options added.{" "}
+              {decision.max_options > 0 ? `${optionCount}/${decision.max_options}` : `${optionCount}`} options added.{" "}
               {canSubmitOptions
                 ? "Add your suggestions."
                 : "Only the organizer can add options."}
               {optionCount < 2 && " At least 2 options are needed to start voting."}
             </Text>
-
-            {/* Constraints summary - expanded by default when adding options */}
-            <ConstraintsSummary constraints={constraints} defaultExpanded={constraints.length > 0} />
 
             {/* Option submission form */}
             {canSubmitOptions && !atMaxOptions && (
@@ -529,29 +511,6 @@ const DecisionDetailScreen = () => {
                   theme={{ colors: { primary: "#2563eb" } }}
                   dense
                 />
-
-                {/* Dynamic metadata inputs based on constraints */}
-                <OptionMetadataInput
-                  constraints={constraints}
-                  metadata={newOptionMetadata}
-                  onMetadataChange={setNewOptionMetadata}
-                  violations={liveValidation.violations}
-                />
-
-                {/* Validation warning */}
-                {!liveValidation.passes && newOptionTitle.trim() && (
-                  <View
-                    style={[
-                      styles.validationWarning,
-                      { backgroundColor: `${theme.colors.error}15` },
-                    ]}
-                  >
-                    <Icon name="warning" size={16} color={theme.colors.error} />
-                    <Text style={[styles.validationWarningText, { color: theme.colors.error }]}>
-                      This option has constraint violations. You can still add it, but it will be flagged.
-                    </Text>
-                  </View>
-                )}
 
                 <TouchableOpacity
                   style={[
@@ -610,6 +569,7 @@ const DecisionDetailScreen = () => {
                 userId={userId}
                 fromPhase="options"
                 members={members}
+                onThresholdReached={() => handleAdvancePhase("voting")}
               />
             )}
 
@@ -640,9 +600,6 @@ const DecisionDetailScreen = () => {
               Vote
             </Text>
 
-            {/* Constraints summary */}
-            <ConstraintsSummary constraints={constraints} />
-
             {hasVoted ? (
               <View style={styles.votedNotice}>
                 <Icon name="check-circle" size={24} color="#22c55e" />
@@ -667,7 +624,7 @@ const DecisionDetailScreen = () => {
             ) : (
               <VotingInterface
                 decision={decision}
-                options={options.filter((o) => o.passes_constraints)}
+                options={options}
                 onVoteSubmitted={handleVoteSubmitted}
               />
             )}
@@ -687,6 +644,7 @@ const DecisionDetailScreen = () => {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Invite Friends Modal */}
       {userId && (
@@ -803,20 +761,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
     fontFamily: "Rubik_500Medium",
-  },
-  validationWarning: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  validationWarningText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: "Rubik_400Regular",
   },
   maxNotice: {
     fontSize: 13,

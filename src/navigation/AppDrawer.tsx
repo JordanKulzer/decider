@@ -1,6 +1,6 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { TouchableOpacity, Text, StyleSheet, View } from "react-native";
+import { Pressable, Text, StyleSheet, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useTheme } from "react-native-paper";
 import HomeScreen from "../screens/HomeScreen";
@@ -25,8 +25,12 @@ const ProfileHeaderButton = ({
     "?";
 
   return (
-    <TouchableOpacity
-      style={styles.profileButton}
+    <Pressable
+      style={({ pressed }) => [
+        styles.profileButton,
+        pressed && styles.noPressEffect,
+      ]}
+      hitSlop={8}
       onPress={() => navigation.navigate("ProfileScreen")}
     >
       <View
@@ -44,7 +48,7 @@ const ProfileHeaderButton = ({
           <MaterialCommunityIcons name="crown" size={10} color="#f59e0b" />
         </View>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 
@@ -90,6 +94,10 @@ const styles = StyleSheet.create({
   profileButton: {
     paddingRight: 16,
     position: "relative",
+    width: 30,
+  },
+  noPressEffect: {
+    opacity: 1,
   },
   profileAvatar: {
     width: 34,

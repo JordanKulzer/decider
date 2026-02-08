@@ -24,6 +24,7 @@ import {
   mockDeclineFriendRequest,
   mockRemoveFriend,
 } from "../lib/mockData";
+import * as friendsApi from "../lib/friends";
 import type { Friend, FriendRequest } from "../types/decisions";
 
 type Tab = "friends" | "requests" | "add";
@@ -70,9 +71,12 @@ const FriendsScreen = () => {
         setFriends(friendsData);
         setRequests(requestsData);
       } else {
-        // TODO: Implement real Supabase queries
-        setFriends([]);
-        setRequests([]);
+        const [friendsData, requestsData] = await Promise.all([
+          friendsApi.fetchFriends(currentUserId),
+          friendsApi.fetchFriendRequests(currentUserId),
+        ]);
+        setFriends(friendsData);
+        setRequests(requestsData);
       }
     } catch (err) {
       console.error("Error loading friends:", err);
@@ -98,9 +102,9 @@ const FriendsScreen = () => {
       if (isDemoMode() && userId) {
         const results = await mockSearchUsers(query, userId);
         setSearchResults(results);
-      } else {
-        // TODO: Implement real search
-        setSearchResults([]);
+      } else if (userId) {
+        const results = await friendsApi.searchUsers(query, userId);
+        setSearchResults(results);
       }
     } catch (err) {
       console.error("Search error:", err);
@@ -114,6 +118,8 @@ const FriendsScreen = () => {
     try {
       if (isDemoMode()) {
         await mockSendFriendRequest(userId, toUserId);
+      } else {
+        await friendsApi.sendFriendRequest(userId, toUserId);
       }
       Toast.show({
         type: "success",
@@ -140,6 +146,8 @@ const FriendsScreen = () => {
     try {
       if (isDemoMode()) {
         await mockAcceptFriendRequest(request.id);
+      } else {
+        await friendsApi.acceptFriendRequest(request.id);
       }
       Toast.show({
         type: "success",
@@ -161,6 +169,8 @@ const FriendsScreen = () => {
     try {
       if (isDemoMode()) {
         await mockDeclineFriendRequest(request.id);
+      } else {
+        await friendsApi.declineFriendRequest(request.id);
       }
       loadData();
     } catch (err: any) {
@@ -186,6 +196,8 @@ const FriendsScreen = () => {
             try {
               if (isDemoMode() && userId) {
                 await mockRemoveFriend(userId, friend.friend_id);
+              } else if (userId) {
+                await friendsApi.removeFriend(userId, friend.friend_id);
               }
               Toast.show({
                 type: "info",

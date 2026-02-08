@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS public.decisions (
   lock_time TIMESTAMPTZ NOT NULL,
   status TEXT NOT NULL DEFAULT 'constraints', -- 'constraints', 'options', 'voting', 'locked'
   voting_mechanism TEXT NOT NULL DEFAULT 'point_allocation', -- 'point_allocation', 'forced_ranking'
-  max_options INTEGER NOT NULL DEFAULT 7 CHECK (max_options >= 2 AND max_options <= 10),
+  max_options INTEGER NOT NULL DEFAULT 7 CHECK (max_options >= 0 AND max_options <= 10),
   option_submission TEXT NOT NULL DEFAULT 'anyone', -- 'anyone', 'organizer_only'
   reveal_votes_after_lock BOOLEAN NOT NULL DEFAULT false,
   invite_code TEXT UNIQUE NOT NULL,
@@ -671,6 +671,79 @@ CREATE POLICY "Members can view votes respecting silent mode" ON public.votes
         )
     )
   );
+
+-- ============================================
+-- 11. FRIENDS SYSTEM
+-- ============================================
+
+-- Friend Requests table
+CREATE TABLE IF NOT EXISTS public.friend_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  from_user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  to_user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'accepted', 'declined')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(from_user_id, to_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_friend_requests_from ON public.friend_requests(from_user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON public.friend_requests(to_user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_status ON public.friend_requests(status);
+
+ALTER TABLE public.friend_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own friend requests" ON public.friend_requests
+  FOR SELECT USING (
+    auth.uid() = from_user_id OR auth.uid() = to_user_id
+  );
+
+CREATE POLICY "Users can send friend requests" ON public.friend_requests
+  FOR INSERT WITH CHECK (auth.uid() = from_user_id);
+
+CREATE POLICY "Users can respond to friend requests" ON public.friend_requests
+  FOR UPDATE USING (auth.uid() = to_user_id);
+
+CREATE POLICY "Users can delete friend requests" ON public.friend_requests
+  FOR DELETE USING (
+    auth.uid() = from_user_id OR auth.uid() = to_user_id
+  );
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.friend_requests TO authenticated;
+
+-- Friendships table (bidirectional - one row per direction)
+CREATE TABLE IF NOT EXISTS public.friendships (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  friend_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'accepted'
+    CHECK (status IN ('accepted', 'blocked')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, friend_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_friendships_user ON public.friendships(user_id);
+CREATE INDEX IF NOT EXISTS idx_friendships_friend ON public.friendships(friend_id);
+CREATE INDEX IF NOT EXISTS idx_friendships_status ON public.friendships(status);
+
+ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own friendships" ON public.friendships
+  FOR SELECT USING (auth.uid() = user_id OR auth.uid() = friend_id);
+
+CREATE POLICY "Users can create friendships" ON public.friendships
+  FOR INSERT WITH CHECK (auth.uid() = user_id OR auth.uid() = friend_id);
+
+CREATE POLICY "Users can delete own friendships" ON public.friendships
+  FOR DELETE USING (auth.uid() = user_id OR auth.uid() = friend_id);
+
+GRANT SELECT, INSERT, DELETE ON public.friendships TO authenticated;
+
+-- Update users policy to allow searching for other users
+DROP POLICY IF EXISTS "Users can view own profile" ON public.users;
+CREATE POLICY "Authenticated users can view non-deleted users" ON public.users
+  FOR SELECT USING (deleted_at IS NULL);
 
 -- ============================================
 -- SETUP COMPLETE!

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,11 +7,16 @@ import {
   Modal,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { useTheme } from "react-native-paper";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { removeMember, transferOrganizer, leaveDecision } from "../lib/decisions";
+import { fetchFriends, sendFriendRequest } from "../lib/friends";
+import { isDemoMode } from "../lib/demoMode";
+import { mockSendFriendRequest } from "../lib/mockData";
+import InviteFriendsModal from "./InviteFriendsModal";
 import type { DecisionMember } from "../types/decisions";
 
 interface MembersButtonProps {
@@ -21,6 +26,7 @@ interface MembersButtonProps {
   currentUserId: string;
   isOrganizer: boolean;
   showVoteStatus?: boolean;
+  inviteCode?: string;
   onMemberChanged?: () => void;
   onLeft?: () => void;
 }
@@ -32,6 +38,7 @@ const MembersButton: React.FC<MembersButtonProps> = ({
   currentUserId,
   isOrganizer,
   showVoteStatus,
+  inviteCode,
   onMemberChanged,
   onLeft,
 }) => {
@@ -39,6 +46,51 @@ const MembersButton: React.FC<MembersButtonProps> = ({
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedMember, setSelectedMember] = useState<DecisionMember | null>(null);
   const [manageMemberVisible, setManageMemberVisible] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [sentRequestIds, setSentRequestIds] = useState<Set<string>>(new Set());
+  const [sendingRequest, setSendingRequest] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (modalVisible && currentUserId) {
+      loadFriendIds();
+    }
+  }, [modalVisible, currentUserId]);
+
+  const loadFriendIds = async () => {
+    try {
+      if (isDemoMode()) return;
+      const friends = await fetchFriends(currentUserId);
+      setFriendIds(new Set(friends.map((f) => f.friend_id)));
+    } catch (err) {
+      console.error("Error loading friends:", err);
+    }
+  };
+
+  const handleAddFriend = async (memberId: string, memberName: string) => {
+    setSendingRequest(memberId);
+    try {
+      if (isDemoMode()) {
+        await mockSendFriendRequest(currentUserId, memberId);
+      } else {
+        await sendFriendRequest(currentUserId, memberId);
+      }
+      setSentRequestIds((prev) => new Set([...prev, memberId]));
+      Toast.show({
+        type: "success",
+        text1: `Friend request sent to ${memberName}!`,
+        position: "bottom",
+      });
+    } catch (err: any) {
+      Toast.show({
+        type: "error",
+        text1: "Failed to send request",
+        text2: err.message,
+        position: "bottom",
+      });
+    }
+    setSendingRequest(null);
+  };
 
   const truncatedTitle =
     decisionTitle.length > 25
@@ -256,6 +308,28 @@ const MembersButton: React.FC<MembersButtonProps> = ({
                     {showVoteStatus && member.has_voted && (
                       <Icon name="check-circle" size={20} color="#22c55e" />
                     )}
+                    {!isCurrentUser && !friendIds.has(member.user_id) && !sentRequestIds.has(member.user_id) && (
+                      <TouchableOpacity
+                        style={[styles.addFriendButton, { backgroundColor: `${theme.colors.primary}15` }]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleAddFriend(member.user_id, member.username || "this member");
+                        }}
+                        disabled={sendingRequest === member.user_id}
+                      >
+                        {sendingRequest === member.user_id ? (
+                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                        ) : (
+                          <Icon name="person-add" size={16} color={theme.colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    {!isCurrentUser && sentRequestIds.has(member.user_id) && (
+                      <View style={[styles.sentBadge, { backgroundColor: "#22c55e20" }]}>
+                        <Icon name="check" size={14} color="#22c55e" />
+                        <Text style={styles.sentBadgeText}>Sent</Text>
+                      </View>
+                    )}
                     {canTap && (
                       <Icon
                         name="chevron-right"
@@ -267,6 +341,27 @@ const MembersButton: React.FC<MembersButtonProps> = ({
                 );
               })}
             </ScrollView>
+
+            {/* Invite Friends button */}
+            {inviteCode && (
+              <TouchableOpacity
+                style={[
+                  styles.inviteFriendsButton,
+                  { backgroundColor: `${theme.colors.primary}15` },
+                ]}
+                onPress={() => {
+                  setModalVisible(false);
+                  setShowInviteModal(true);
+                }}
+              >
+                <Icon name="person-add" size={20} color={theme.colors.primary} />
+                <Text
+                  style={[styles.inviteFriendsText, { color: theme.colors.primary }]}
+                >
+                  Invite Friends
+                </Text>
+              </TouchableOpacity>
+            )}
 
             {/* Leave button for non-organizers */}
             {!isOrganizer && (
@@ -376,6 +471,19 @@ const MembersButton: React.FC<MembersButtonProps> = ({
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Invite Friends Modal */}
+      {inviteCode && (
+        <InviteFriendsModal
+          visible={showInviteModal}
+          onClose={() => setShowInviteModal(false)}
+          decisionId={decisionId}
+          decisionTitle={decisionTitle}
+          inviteCode={inviteCode}
+          userId={currentUserId}
+          onInvited={onMemberChanged}
+        />
+      )}
     </>
   );
 };
@@ -458,6 +566,40 @@ const styles = StyleSheet.create({
   roleTag: {
     fontSize: 12,
     fontWeight: "600",
+    fontFamily: "Rubik_500Medium",
+  },
+  addFriendButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    gap: 3,
+  },
+  sentBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#22c55e",
+    fontFamily: "Rubik_500Medium",
+  },
+  inviteFriendsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  inviteFriendsText: {
+    fontSize: 15,
+    fontWeight: "500",
     fontFamily: "Rubik_500Medium",
   },
   leaveButton: {
