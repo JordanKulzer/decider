@@ -14,12 +14,13 @@ export const fetchUserDecisions = async (userId: string) => {
       role,
       has_voted,
       decisions (
-        id, title, description, type_label, lock_time, status,
-        voting_mechanism, created_by, invite_code, created_at
+        id, title, description, type_label, closes_at, status,
+        voting_mechanism, created_by, invite_code, created_at, mode,
+        options:options!options_decision_id_fkey(count)
       )
     `
     )
-    .eq("user_id", userId);
+    .eq("actor_user_id", userId);
 
   if (error) throw error;
   return data;
@@ -64,8 +65,8 @@ export const fetchDecisionMembers = async (
     .from("decision_members")
     .select(
       `
-      id, decision_id, user_id, role, has_voted, joined_at,
-      users:user_id (username, email)
+      id, decision_id, actor_user_id, role, has_voted, joined_at,
+      users:actor_user_id (username, email)
     `
     )
     .eq("decision_id", decisionId);
@@ -75,7 +76,7 @@ export const fetchDecisionMembers = async (
   return (data || []).map((m: any) => ({
     id: m.id,
     decision_id: m.decision_id,
-    user_id: m.user_id,
+    user_id: m.actor_user_id,
     role: m.role,
     has_voted: m.has_voted,
     joined_at: m.joined_at,
@@ -160,7 +161,8 @@ export const addOption = async (
     .insert([
       {
         decision_id: decisionId,
-        submitted_by: userId,
+        submitted_by_user_id: userId,
+        submitted_by_guest_id: null,
         title,
         description,
         metadata,
@@ -190,7 +192,7 @@ export const fetchVotes = async (decisionId: string): Promise<Vote[]> => {
   if (isDemoMode()) return mock.mockFetchVotes(decisionId);
 
   const { data, error } = await supabase
-    .from("votes")
+    .from("advanced_votes")
     .select("*")
     .eq("decision_id", decisionId);
 
@@ -214,14 +216,14 @@ export const submitVotes = async (
       value: v.value,
     }));
 
-  const { error: voteError } = await supabase.from("votes").insert(voteRows);
+  const { error: voteError } = await supabase.from("advanced_votes").insert(voteRows);
   if (voteError) throw voteError;
 
   const { error: memberError } = await supabase
     .from("decision_members")
     .update({ has_voted: true })
     .eq("decision_id", decisionId)
-    .eq("user_id", userId);
+    .eq("actor_user_id", userId);
   if (memberError) throw memberError;
 };
 
@@ -265,7 +267,7 @@ export const joinDecision = async (
     .insert([
       {
         decision_id: decisionId,
-        user_id: userId,
+        actor_user_id: userId,
         role: "member",
       },
     ]);
@@ -283,7 +285,7 @@ export const leaveDecision = async (
     .from("decision_members")
     .delete()
     .eq("decision_id", decisionId)
-    .eq("user_id", userId);
+    .eq("actor_user_id", userId);
 
   if (error) throw error;
 };
@@ -306,7 +308,7 @@ export const revertPhase = async (
   // If reverting to options, delete all votes and reset has_voted flags
   if (targetStatus === "options") {
     const { error: votesError } = await supabase
-      .from("votes")
+      .from("advanced_votes")
       .delete()
       .eq("decision_id", decisionId);
     if (votesError) throw votesError;
@@ -418,10 +420,7 @@ export const fetchComments = async (
 
   const { data, error } = await supabase
     .from("comments")
-    .select(`
-      id, decision_id, user_id, option_id, constraint_id, parent_id, content, created_at, deleted_at, deleted_by,
-      users:user_id (username)
-    `)
+    .select("id, decision_id, user_id, option_id, constraint_id, parent_id, content, created_at, deleted_at, deleted_by, display_name")
     .eq("decision_id", decisionId)
     .order("created_at", { ascending: true });
 
@@ -438,7 +437,7 @@ export const fetchComments = async (
     created_at: c.created_at,
     deleted_at: c.deleted_at,
     deleted_by: c.deleted_by,
-    username: c.users?.username,
+    username: c.display_name ?? undefined,
   }));
 
   // Organize into tree structure
@@ -467,7 +466,8 @@ export const addComment = async (
   content: string,
   optionId: string | null,
   constraintId: string | null,
-  parentId: string | null
+  parentId: string | null,
+  displayName?: string | null
 ) => {
   if (isDemoMode()) return mock.mockAddComment(decisionId, userId, content, optionId, constraintId, parentId);
 
@@ -480,6 +480,7 @@ export const addComment = async (
       option_id: optionId,
       constraint_id: constraintId,
       parent_id: parentId,
+      display_name: displayName ?? null,
     }])
     .select()
     .single();
@@ -528,7 +529,7 @@ export const removeMember = async (
     .from("decision_members")
     .delete()
     .eq("decision_id", decisionId)
-    .eq("user_id", userIdToRemove);
+    .eq("actor_user_id", userIdToRemove);
 
   if (error) throw error;
 };
@@ -561,7 +562,7 @@ export const transferOrganizer = async (
     .from("decision_members")
     .update({ role: "organizer" })
     .eq("decision_id", decisionId)
-    .eq("user_id", newOrganizerId);
+    .eq("actor_user_id", newOrganizerId);
 
   if (newOrgError) throw newOrgError;
 };
@@ -587,7 +588,7 @@ export const fetchUserPastDecisions = async (
     .select(`
       id, title, created_at, voting_mechanism,
       constraints:constraints(count),
-      options:options(count)
+      options:options!options_decision_id_fkey(count)
     `)
     .eq("created_by", userId)
     .order("created_at", { ascending: false })
@@ -643,7 +644,7 @@ export const duplicateDecision = async (
       description: newDescription,
       type_label: sourceDecision.type_label,
       created_by: userId,
-      lock_time: newLockTime,
+      closes_at: newLockTime,
       status: "constraints", // Always start in constraints phase
       voting_mechanism: sourceDecision.voting_mechanism,
       max_options: sourceDecision.max_options,
@@ -693,7 +694,8 @@ export const duplicateDecision = async (
   if (sourceOptions && sourceOptions.length > 0) {
     const newOptions = sourceOptions.map((o: any) => ({
       decision_id: newDecision.id,
-      submitted_by: userId,
+      submitted_by_user_id: userId,
+      submitted_by_guest_id: null,
       title: o.title,
       description: o.description,
       metadata: o.metadata,

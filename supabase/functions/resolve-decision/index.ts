@@ -18,24 +18,48 @@ Deno.serve(async (req) => {
 
     const now = new Date().toISOString();
 
-    // Find voting decisions past their lock time
+    // ── Quick Mode resolution ─────────────────────────────────────────────────
+    // Find quick decisions that have passed their deadline but have not yet been
+    // resolved (resolution_reason is NULL — the status may already be 'locked'
+    // due to the auto-lock in get_quick_decision_state, so we check both).
+    const { data: expiredQuick, error: quickFetchError } = await supabase
+      .from("decisions")
+      .select("id")
+      .eq("mode", "quick")
+      .lte("closes_at", now)
+      .is("resolution_reason", null);
+
+    if (quickFetchError) throw quickFetchError;
+
+    let quickResolved = 0;
+
+    for (const decision of expiredQuick ?? []) {
+      // resolve_quick_decision is idempotent — safe to call even if the row
+      // was already locked by get_quick_decision_state's auto-flip.
+      const { error } = await supabase.rpc("resolve_quick_decision", {
+        p_decision_id: decision.id,
+      });
+
+      if (error) {
+        console.error(`Failed to resolve quick decision ${decision.id}:`, error);
+        continue;
+      }
+      quickResolved++;
+    }
+
+    // ── Advanced Mode resolution (unchanged) ─────────────────────────────────
+    // Find voting decisions past their lock time.
     const { data: expiredDecisions, error: fetchError } = await supabase
       .from("decisions")
       .select("id, voting_mechanism")
       .eq("status", "voting")
-      .lte("lock_time", now);
+      .lte("closes_at", now);
 
     if (fetchError) throw fetchError;
-    if (!expiredDecisions || expiredDecisions.length === 0) {
-      return new Response(JSON.stringify({ resolved: 0 }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
 
-    let resolvedCount = 0;
+    let advancedResolved = 0;
 
-    for (const decision of expiredDecisions) {
+    for (const decision of expiredDecisions ?? []) {
       const { data: options } = await supabase
         .from("options")
         .select("id")
@@ -48,12 +72,12 @@ Deno.serve(async (req) => {
         .eq("decision_id", decision.id);
 
       if (!options || options.length === 0) {
-        // No options — just lock with no results
+        // No options — just lock with no results.
         await supabase
           .from("decisions")
           .update({ status: "locked" })
           .eq("id", decision.id);
-        resolvedCount++;
+        advancedResolved++;
         continue;
       }
 
@@ -77,13 +101,13 @@ Deno.serve(async (req) => {
         .update({ status: "locked" })
         .eq("id", decision.id);
 
-      resolvedCount++;
+      advancedResolved++;
     }
 
-    return new Response(JSON.stringify({ resolved: resolvedCount }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ quickResolved, advancedResolved }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   } catch (error) {
     return new Response(JSON.stringify({ error: String(error) }), {
       status: 500,
@@ -91,6 +115,8 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// ── Advanced Mode helpers (unchanged) ─────────────────────────────────────────
 
 function calculateResults(
   mechanism: string,

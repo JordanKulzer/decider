@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Modal,
 } from "react-native";
-import { useTheme } from "react-native-paper";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 
 interface UpgradePromptProps {
@@ -24,8 +23,6 @@ const UpgradePrompt: React.FC<UpgradePromptProps> = ({
   feature,
   reason,
 }) => {
-  const theme = useTheme();
-
   return (
     <Modal
       visible={visible}
@@ -34,86 +31,53 @@ const UpgradePrompt: React.FC<UpgradePromptProps> = ({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View
-          style={[
-            styles.container,
-            { backgroundColor: theme.colors.background },
-          ]}
-        >
+        <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
-            <View style={[styles.iconContainer, { backgroundColor: "#8b5cf6" }]}>
+            <View style={styles.iconContainer}>
               <Icon name="workspace-premium" size={32} color="#fff" />
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Icon name="close" size={24} color={theme.colors.onSurfaceVariant} />
+              <Icon name="close" size={24} color="#64748b" />
             </TouchableOpacity>
           </View>
 
           {/* Content */}
-          <Text style={[styles.title, { color: theme.colors.onBackground }]}>
-            Upgrade to Pro
-          </Text>
+          <Text style={styles.title}>Upgrade to Pro</Text>
 
           {feature && (
-            <Text style={[styles.feature, { color: theme.colors.primary }]}>
-              {feature}
-            </Text>
+            <Text style={styles.feature}>{feature}</Text>
           )}
 
           {reason && (
-            <Text style={[styles.reason, { color: theme.colors.onSurfaceVariant }]}>
-              {reason}
-            </Text>
+            <Text style={styles.reason}>{reason}</Text>
           )}
 
           {/* Benefits */}
           <View style={styles.benefits}>
-            <View style={styles.benefit}>
-              <Icon name="check-circle" size={20} color="#22c55e" />
-              <Text style={[styles.benefitText, { color: theme.colors.onBackground }]}>
-                Unlimited active decisions
-              </Text>
-            </View>
-            <View style={styles.benefit}>
-              <Icon name="check-circle" size={20} color="#22c55e" />
-              <Text style={[styles.benefitText, { color: theme.colors.onBackground }]}>
-                Unlimited participants
-              </Text>
-            </View>
-            <View style={styles.benefit}>
-              <Icon name="check-circle" size={20} color="#22c55e" />
-              <Text style={[styles.benefitText, { color: theme.colors.onBackground }]}>
-                Silent voting mode
-              </Text>
-            </View>
-            <View style={styles.benefit}>
-              <Icon name="check-circle" size={20} color="#22c55e" />
-              <Text style={[styles.benefitText, { color: theme.colors.onBackground }]}>
-                Constraint weighting
-              </Text>
-            </View>
-            <View style={styles.benefit}>
-              <Icon name="check-circle" size={20} color="#22c55e" />
-              <Text style={[styles.benefitText, { color: theme.colors.onBackground }]}>
-                Full decision history
-              </Text>
-            </View>
+            {[
+              "Unlimited active decisions",
+              "Unlimited participants",
+              "Silent voting mode",
+              "Constraint weighting",
+              "Full decision history",
+            ].map((text) => (
+              <View key={text} style={styles.benefit}>
+                <Icon name="check-circle" size={20} color="#22c55e" />
+                <Text style={styles.benefitText}>{text}</Text>
+              </View>
+            ))}
           </View>
 
           {/* Price */}
           <View style={styles.priceContainer}>
-            <Text style={[styles.price, { color: theme.colors.onBackground }]}>
-              $4.99
-            </Text>
-            <Text style={[styles.priceUnit, { color: theme.colors.onSurfaceVariant }]}>
-              /month
-            </Text>
+            <Text style={styles.price}>$4.99</Text>
+            <Text style={styles.priceUnit}>/month</Text>
           </View>
 
           {/* Buttons */}
           <TouchableOpacity
-            style={[styles.upgradeButton, { backgroundColor: "#8b5cf6" }]}
+            style={styles.upgradeButton}
             onPress={onUpgrade}
             activeOpacity={0.8}
           >
@@ -122,9 +86,7 @@ const UpgradePrompt: React.FC<UpgradePromptProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity onPress={onClose} style={styles.laterButton}>
-            <Text style={[styles.laterButtonText, { color: theme.colors.onSurfaceVariant }]}>
-              Maybe later
-            </Text>
+            <Text style={styles.laterButtonText}>Maybe later</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -135,7 +97,7 @@ const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(0,0,0,0.75)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
@@ -146,6 +108,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 24,
     alignItems: "center",
+    backgroundColor: "#1e293b",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
   header: {
     width: "100%",
@@ -159,6 +124,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#7c3aed",
   },
   closeButton: {
     position: "absolute",
@@ -167,15 +133,17 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
+    color: "#f1f5f9",
     marginBottom: 8,
   },
   feature: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     fontFamily: "Rubik_500Medium",
+    color: "#818cf8",
     marginBottom: 4,
   },
   reason: {
@@ -183,6 +151,7 @@ const styles = StyleSheet.create({
     fontFamily: "Rubik_400Regular",
     textAlign: "center",
     marginBottom: 20,
+    color: "#94a3b8",
   },
   benefits: {
     width: "100%",
@@ -197,6 +166,7 @@ const styles = StyleSheet.create({
   benefitText: {
     fontSize: 14,
     fontFamily: "Rubik_400Regular",
+    color: "#cbd5e1",
   },
   priceContainer: {
     flexDirection: "row",
@@ -204,14 +174,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   price: {
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
+    color: "#f1f5f9",
   },
   priceUnit: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: "Rubik_400Regular",
     marginLeft: 4,
+    color: "#64748b",
   },
   upgradeButton: {
     width: "100%",
@@ -219,8 +191,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 10,
     gap: 8,
+    backgroundColor: "#7c3aed",
   },
   upgradeButtonText: {
     color: "#fff",
@@ -235,6 +208,7 @@ const styles = StyleSheet.create({
   laterButtonText: {
     fontSize: 14,
     fontFamily: "Rubik_400Regular",
+    color: "#64748b",
   },
 });
 

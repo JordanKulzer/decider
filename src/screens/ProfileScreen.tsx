@@ -18,6 +18,7 @@ import Constants from "expo-constants";
 import { supabase } from "../lib/supabase";
 import { isDemoMode, DEMO_USER, DEMO_USER_ID } from "../lib/demoMode";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useNotifications } from "../context/NotificationContext";
 import { mockFetchFriends, mockFetchFriendRequests } from "../lib/mockData";
 
 type EditField = "username" | "password" | null;
@@ -32,12 +33,13 @@ const ProfileScreen = ({ isDarkTheme, toggleTheme, onLogout }: ProfileScreenProp
   const theme = useTheme();
   const navigation = useNavigation<any>();
   const { isProUser } = useSubscription();
+  const { friendCount, friendRequestCount, refreshFriendStats } = useNotifications();
 
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [friendCount, setFriendCount] = useState(0);
-  const [requestCount, setRequestCount] = useState(0);
+  const [localFriendCount, setLocalFriendCount] = useState(0);
+  const [localRequestCount, setLocalRequestCount] = useState(0);
 
   // Edit state
   const [editField, setEditField] = useState<EditField>(null);
@@ -71,8 +73,8 @@ const ProfileScreen = ({ isDarkTheme, toggleTheme, onLogout }: ProfileScreenProp
             mockFetchFriends(DEMO_USER_ID),
             mockFetchFriendRequests(DEMO_USER_ID),
           ]);
-          setFriendCount(friends.length);
-          setRequestCount(requests.length);
+          setLocalFriendCount(friends.length);
+          setLocalRequestCount(requests.length);
           setLoading(false);
           return;
         }
@@ -89,9 +91,8 @@ const ProfileScreen = ({ isDarkTheme, toggleTheme, onLogout }: ProfileScreenProp
 
         setProfile(data);
 
-        // TODO: Load real friend counts from Supabase
-        setFriendCount(0);
-        setRequestCount(0);
+        // Refresh global friend stats (badge + counts) when user visits profile
+        refreshFriendStats();
 
         setLoading(false);
       };
@@ -371,13 +372,17 @@ const ProfileScreen = ({ isDarkTheme, toggleTheme, onLogout }: ProfileScreenProp
               Friends
             </Text>
             <Text style={[styles.menuSubtitle, { color: theme.colors.onSurfaceVariant }]}>
-              {friendCount} {friendCount === 1 ? "friend" : "friends"}
-              {requestCount > 0 && ` · ${requestCount} pending`}
+              {isDemoMode() ? localFriendCount : friendCount}{" "}
+              {(isDemoMode() ? localFriendCount : friendCount) === 1 ? "friend" : "friends"}
+              {(isDemoMode() ? localRequestCount : friendRequestCount) > 0 &&
+                ` · ${isDemoMode() ? localRequestCount : friendRequestCount} pending`}
             </Text>
           </View>
-          {requestCount > 0 && (
+          {(isDemoMode() ? localRequestCount : friendRequestCount) > 0 && (
             <View style={[styles.badge, { backgroundColor: theme.colors.error }]}>
-              <Text style={styles.badgeText}>{requestCount}</Text>
+              <Text style={styles.badgeText}>
+                {isDemoMode() ? localRequestCount : friendRequestCount}
+              </Text>
             </View>
           )}
           <Icon name="chevron-right" size={24} color={theme.colors.onSurfaceVariant} />

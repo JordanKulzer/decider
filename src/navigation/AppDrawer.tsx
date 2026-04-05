@@ -2,33 +2,27 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Pressable, Text, StyleSheet, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useTheme } from "react-native-paper";
 import HomeScreen from "../screens/HomeScreen";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useNotifications } from "../context/NotificationContext";
 
 const Stack = createNativeStackNavigator();
 
-// Profile Header Button Component
 const ProfileHeaderButton = ({
   navigation,
-  username,
 }: {
   navigation: any;
-  username?: string;
 }) => {
-  const theme = useTheme();
   const { isProUser, profile } = useSubscription();
+  const { friendRequestCount } = useNotifications();
 
-  const initial =
-    profile?.username?.charAt(0)?.toUpperCase() ||
-    username?.charAt(0)?.toUpperCase() ||
-    "?";
+  const initial = profile?.username?.charAt(0)?.toUpperCase() || "?";
 
   return (
     <Pressable
       style={({ pressed }) => [
         styles.profileButton,
-        pressed && styles.noPressEffect,
+        pressed && { opacity: 0.7 },
       ]}
       hitSlop={8}
       onPress={() => navigation.navigate("ProfileScreen")}
@@ -36,13 +30,22 @@ const ProfileHeaderButton = ({
       <View
         style={[
           styles.profileAvatar,
-          {
-            backgroundColor: isProUser ? "#f59e0b" : theme.colors.primary,
-          },
+          isProUser && styles.profileAvatarPro,
+          { backgroundColor: isProUser ? "#f59e0b" : "#4338ca" },
         ]}
       >
         <Text style={styles.profileAvatarText}>{initial}</Text>
       </View>
+
+      {/* ── Social badge: pending friend requests ── */}
+      {friendRequestCount > 0 && (
+        <View style={styles.socialBadge}>
+          <Text style={styles.socialBadgeText}>
+            {friendRequestCount > 9 ? "9+" : String(friendRequestCount)}
+          </Text>
+        </View>
+      )}
+
       {isProUser && (
         <View style={styles.proCrown}>
           <MaterialCommunityIcons name="crown" size={10} color="#f59e0b" />
@@ -58,27 +61,15 @@ const AppDrawer = (_props: {
   isDarkTheme: boolean;
   toggleTheme: () => void;
 }) => {
-  const theme = useTheme();
-
   return (
     <Stack.Navigator
       screenOptions={({ navigation }) => ({
         headerTitle: () => (
-          <Text
-            style={{
-              fontSize: 22,
-              fontWeight: "700",
-              fontFamily: "Rubik_600SemiBold",
-              color: theme.colors.primary,
-              letterSpacing: -0.5,
-            }}
-          >
-            Decider
-          </Text>
+          <Text style={styles.headerTitle}>Decider</Text>
         ),
         headerTitleAlign: "center",
         headerStyle: {
-          backgroundColor: theme.colors.surface,
+          backgroundColor: "#1e293b",
         },
         headerShadowVisible: false,
         headerLeft: () => null,
@@ -91,13 +82,16 @@ const AppDrawer = (_props: {
 };
 
 const styles = StyleSheet.create({
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    fontFamily: "Rubik_600SemiBold",
+    color: "#6366f1",
+    letterSpacing: -0.5,
+  },
   profileButton: {
     paddingRight: 16,
     position: "relative",
-    width: 30,
-  },
-  noPressEffect: {
-    opacity: 1,
   },
   profileAvatar: {
     width: 34,
@@ -105,18 +99,45 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(99,102,241,0.45)",
+  },
+  profileAvatarPro: {
+    borderColor: "rgba(245,158,11,0.5)",
   },
   profileAvatarText: {
     color: "#fff",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
+    letterSpacing: 0.2,
+  },
+  // ── Social badge (friend requests) ──
+  socialBadge: {
+    position: "absolute",
+    top: -3,
+    right: 12,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#1e293b",
+  },
+  socialBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "700",
+    lineHeight: 12,
   },
   proCrown: {
     position: "absolute",
-    top: -2,
-    right: 12,
-    backgroundColor: "#fff",
+    top: -4,
+    right: 13,
+    backgroundColor: "#1e293b",
     borderRadius: 8,
     padding: 2,
   },

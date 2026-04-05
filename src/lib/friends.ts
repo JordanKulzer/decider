@@ -110,52 +110,24 @@ export const sendFriendRequest = async (
 };
 
 // ─── ACCEPT FRIEND REQUEST ───
+// Uses a SECURITY DEFINER RPC to atomically insert both friendship rows and
+// update the request status. Direct client-side inserts fail RLS because the
+// accepting user can only write rows where user_id = auth.uid() — the other
+// direction (from_user_id → to_user_id) would be blocked.
 
 export const acceptFriendRequest = async (requestId: string) => {
-  // Get request details
-  const { data: request, error: fetchError } = await supabase
-    .from("friend_requests")
-    .select("from_user_id, to_user_id")
-    .eq("id", requestId)
-    .single();
-
-  if (fetchError) throw fetchError;
-
-  // Update request status
-  const { error: updateError } = await supabase
-    .from("friend_requests")
-    .update({ status: "accepted" })
-    .eq("id", requestId);
-
-  if (updateError) throw updateError;
-
-  // Create bidirectional friendship rows
-  const { error: friendshipError } = await supabase
-    .from("friendships")
-    .insert([
-      {
-        user_id: request.from_user_id,
-        friend_id: request.to_user_id,
-        status: "accepted",
-      },
-      {
-        user_id: request.to_user_id,
-        friend_id: request.from_user_id,
-        status: "accepted",
-      },
-    ]);
-
-  if (friendshipError) throw friendshipError;
+  const { error } = await supabase.rpc("accept_friend_request", {
+    p_request_id: requestId,
+  });
+  if (error) throw error;
 };
 
 // ─── DECLINE FRIEND REQUEST ───
 
 export const declineFriendRequest = async (requestId: string) => {
-  const { error } = await supabase
-    .from("friend_requests")
-    .update({ status: "declined" })
-    .eq("id", requestId);
-
+  const { error } = await supabase.rpc("decline_friend_request", {
+    p_request_id: requestId,
+  });
   if (error) throw error;
 };
 
@@ -181,27 +153,40 @@ export const removeFriend = async (userId: string, friendId: string) => {
 };
 
 // ─── GET INVITABLE FRIENDS ───
-// Returns friends who are NOT already members of the given decision
+// Returns friends who are NOT already members and do NOT have a pending invite.
 
 export const getInvitableFriends = async (
   userId: string,
   decisionId: string
 ): Promise<Friend[]> => {
-  // Get all friends
   const friends = await fetchFriends(userId);
 
-  // Get current decision members
-  const { data: members, error } = await supabase
-    .from("decision_members")
-    .select("user_id")
-    .eq("decision_id", decisionId);
+  // Fetch current members and pending invites in parallel
+  const [membersResult, invitesResult] = await Promise.all([
+    supabase
+      .from("decision_members")
+      .select("actor_user_id")
+      .eq("decision_id", decisionId),
+    supabase
+      .from("decision_invites")
+      .select("invitee_id")
+      .eq("decision_id", decisionId)
+      .eq("status", "pending"),
+  ]);
 
-  if (error) throw error;
+  if (membersResult.error) throw membersResult.error;
 
-  const memberIds = new Set((members || []).map((m: any) => m.user_id));
+  const memberIds = new Set<string>(
+    (membersResult.data || []).map((m: any) => m.actor_user_id).filter(Boolean)
+  );
 
-  // Filter out friends who are already members
-  return friends.filter((f) => !memberIds.has(f.friend_id));
+  const pendingInviteeIds = new Set<string>(
+    (invitesResult.data || []).map((i: any) => i.invitee_id)
+  );
+
+  return friends.filter(
+    (f) => !memberIds.has(f.friend_id) && !pendingInviteeIds.has(f.friend_id)
+  );
 };
 
 // ─── INVITE FRIEND TO DECISION ───

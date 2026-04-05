@@ -306,7 +306,6 @@ const DecisionDetailScreen = () => {
               currentUserId={userId}
               isOrganizer={false}
               showVoteStatus={decision.status === "voting"}
-              inviteCode={decision.invite_code}
               onMemberChanged={loadData}
               onLeft={() => navigation.goBack()}
             />
@@ -358,18 +357,20 @@ const DecisionDetailScreen = () => {
         </Text>
 
         <View style={styles.metaRow}>
-          <CountdownTimer lockTime={decision.lock_time} onExpired={loadData} />
-          <TouchableOpacity
-            style={styles.inviteButton}
-            onPress={() => setShowInviteModal(true)}
-          >
-            <Icon name="person-add" size={14} color={theme.colors.primary} />
-            <Text
-              style={[styles.inviteCode, { color: theme.colors.primary }]}
+          <CountdownTimer closesAt={decision.closes_at} onExpired={loadData} />
+          {isOrganizer && (
+            <TouchableOpacity
+              style={styles.inviteButton}
+              onPress={() => setShowInviteModal(true)}
             >
-              Invite
-            </Text>
-          </TouchableOpacity>
+              <Icon name="person-add" size={14} color={theme.colors.primary} />
+              <Text
+                style={[styles.inviteCode, { color: theme.colors.primary }]}
+              >
+                Invite
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Phase Indicator */}
@@ -618,7 +619,7 @@ const DecisionDetailScreen = () => {
                   ]}
                 >
                   Waiting for others to vote. The decision locks at{" "}
-                  {formatLockTime(decision.lock_time)}.
+                  {formatLockTime(decision.closes_at)}.
                 </Text>
               </View>
             ) : (

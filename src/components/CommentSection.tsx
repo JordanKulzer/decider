@@ -3,6 +3,8 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
+  Alert,
   StyleSheet,
   TextInput,
 } from "react-native";
@@ -15,24 +17,39 @@ import type { Comment } from "../types/decisions";
 interface CommentSectionProps {
   decisionId: string;
   userId: string;
+  displayName?: string | null;
   comments: Comment[];
   targetId: string;
-  targetType: "option" | "constraint";
-  onCommentAdded: () => void;
+  targetType: "option" | "constraint" | "decision";
+  onCommentAdded: () => Promise<void> | void;
+  onComposerActiveChange?: (active: boolean) => void;
   isOrganizer?: boolean;
+  initiallyExpanded?: boolean;
+  /** When false, hides reply controls so comments stay flat. Default: true. */
+  allowReplies?: boolean;
+  /** Placeholder text for the compose input. Default: "Add a comment..." */
+  placeholder?: string;
+  /** Label shown on the collapsed toggle when there are no comments. Default: "Add comment" */
+  emptyLabel?: string;
 }
 
 const CommentSection: React.FC<CommentSectionProps> = ({
   decisionId,
   userId,
+  displayName,
   comments,
   targetId,
   targetType,
   onCommentAdded,
+  onComposerActiveChange,
   isOrganizer = false,
+  initiallyExpanded = false,
+  allowReplies = true,
+  placeholder = "Add a comment...",
+  emptyLabel = "Add comment",
 }) => {
   const theme = useTheme();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [newComment, setNewComment] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -41,7 +58,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
   const targetComments = comments.filter((c) =>
     targetType === "option"
       ? c.option_id === targetId
-      : c.constraint_id === targetId
+      : targetType === "constraint"
+      ? c.constraint_id === targetId
+      : c.option_id === null && c.constraint_id === null
   );
 
   const totalCount = targetComments.reduce(
@@ -60,11 +79,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         newComment.trim(),
         targetType === "option" ? targetId : null,
         targetType === "constraint" ? targetId : null,
-        replyingTo
+        replyingTo,
+        displayName ?? null
       );
       setNewComment("");
       setReplyingTo(null);
-      onCommentAdded();
+      await onCommentAdded();
+      setExpanded(true);
       Toast.show({
         type: "success",
         text1: "Comment added",
@@ -91,7 +112,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         // Soft delete others' comments as organizer
         await softDeleteComment(commentId, userId);
       }
-      onCommentAdded();
+      await onCommentAdded();
       Toast.show({
         type: "success",
         text1: isOwnComment ? "Comment deleted" : "Comment removed",
@@ -145,12 +166,32 @@ const CommentSection: React.FC<CommentSectionProps> = ({
       );
     }
 
-    const canDelete = comment.user_id === userId || isOrganizer;
+    const isOwnComment = comment.user_id === userId;
+    const canDelete = isOwnComment || isOrganizer;
+
+    function confirmDelete() {
+      Alert.alert(
+        "Delete comment",
+        isOwnComment
+          ? "Remove your comment? This can't be undone."
+          : "Remove this comment as host? The author will see it was removed.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => handleDelete(comment.id, comment.user_id),
+          },
+        ]
+      );
+    }
 
     return (
-      <View
+      <Pressable
         key={comment.id}
-        style={[
+        onLongPress={canDelete ? confirmDelete : undefined}
+        delayLongPress={400}
+        style={({ pressed }) => [
           styles.commentItem,
           isReply && styles.replyItem,
           {
@@ -158,6 +199,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
               ? "transparent"
               : (theme as any).custom?.card || theme.colors.surface,
           },
+          pressed && canDelete && styles.commentPressed,
         ]}
       >
         <View style={styles.commentHeader}>
@@ -174,33 +216,27 @@ const CommentSection: React.FC<CommentSectionProps> = ({
           <Text style={[styles.time, { color: theme.colors.onSurfaceVariant }]}>
             {formatTime(comment.created_at)}
           </Text>
-          {canDelete && (
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={() => handleDelete(comment.id, comment.user_id)}
-            >
-              <Icon name="close" size={14} color={theme.colors.error} />
-            </TouchableOpacity>
-          )}
         </View>
         <Text
           style={[styles.commentText, { color: theme.colors.onBackground }]}
         >
           {comment.content}
         </Text>
-        <TouchableOpacity
-          style={styles.replyButton}
-          onPress={() => setReplyingTo(comment.id)}
-        >
-          <Icon name="reply" size={14} color={theme.colors.primary} />
-          <Text style={[styles.replyButtonText, { color: theme.colors.primary }]}>
-            Reply
-          </Text>
-        </TouchableOpacity>
+        {allowReplies && (
+          <TouchableOpacity
+            style={styles.replyButton}
+            onPress={() => setReplyingTo(comment.id)}
+          >
+            <Icon name="reply" size={14} color={theme.colors.primary} />
+            <Text style={[styles.replyButtonText, { color: theme.colors.primary }]}>
+              Reply
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Render replies */}
         {comment.replies?.map((reply) => renderComment(reply, true))}
-      </View>
+      </Pressable>
     );
   };
 
@@ -208,11 +244,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     return (
       <TouchableOpacity
         style={styles.toggleButton}
-        onPress={() => setExpanded(true)}
+        onPress={() => {
+          setExpanded(true);
+        }}
       >
         <Icon name="chat-bubble-outline" size={14} color={theme.colors.primary} />
         <Text style={[styles.toggleText, { color: theme.colors.primary }]}>
-          {totalCount > 0 ? `${totalCount} comment${totalCount !== 1 ? "s" : ""}` : "Add comment"}
+          {totalCount > 0 ? `${totalCount} comment${totalCount !== 1 ? "s" : ""}` : emptyLabel}
         </Text>
       </TouchableOpacity>
     );
@@ -222,7 +260,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     <View style={styles.container}>
       <TouchableOpacity
         style={styles.toggleButton}
-        onPress={() => setExpanded(false)}
+        onPress={() => {
+          setExpanded(false);
+          onComposerActiveChange?.(false);
+        }}
       >
         <Icon name="expand-less" size={14} color={theme.colors.primary} />
         <Text style={[styles.toggleText, { color: theme.colors.primary }]}>
@@ -235,7 +276,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
       {/* Input area */}
       <View style={styles.inputArea}>
-        {replyingTo && (
+        {allowReplies && replyingTo && (
           <View
             style={[
               styles.replyingBanner,
@@ -264,10 +305,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 color: theme.colors.onBackground,
               },
             ]}
-            placeholder="Add a comment..."
+            placeholder={placeholder}
             placeholderTextColor={theme.colors.onSurfaceVariant}
             value={newComment}
             onChangeText={setNewComment}
+            onFocus={() => onComposerActiveChange?.(true)}
+            onBlur={() => onComposerActiveChange?.(false)}
             multiline
           />
           <TouchableOpacity
@@ -361,8 +404,8 @@ const styles = StyleSheet.create({
     fontFamily: "Rubik_400Regular",
     flex: 1,
   },
-  deleteButton: {
-    padding: 2,
+  commentPressed: {
+    opacity: 0.65,
   },
   commentText: {
     fontSize: 13,

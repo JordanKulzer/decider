@@ -14,4 +14,15 @@ export type RootStackParamList = {
     inviteCode?: string;
   };
   ProfileScreen: undefined;
+  // Guest entry
+  GuestNameScreen: {
+    /** "quickstart" navigates to QuickStartScreen after name entry.
+     *  "join" navigates to JoinDecisionScreen after name entry. */
+    mode: "quickstart" | "join";
+  };
+  // Quick Mode screens
+  QuickStartScreen: undefined;
+  LiveDecisionScreen: {
+    decisionId: string;
+  };
 };

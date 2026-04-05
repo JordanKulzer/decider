@@ -4,8 +4,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Modal,
+  Pressable,
   Alert,
+  Modal,
   ScrollView,
   ActivityIndicator,
 } from "react-native";
@@ -16,7 +17,7 @@ import { removeMember, transferOrganizer, leaveDecision } from "../lib/decisions
 import { fetchFriends, sendFriendRequest } from "../lib/friends";
 import { isDemoMode } from "../lib/demoMode";
 import { mockSendFriendRequest } from "../lib/mockData";
-import InviteFriendsModal from "./InviteFriendsModal";
+import InvitePeopleModal from "./InvitePeopleModal";
 import type { DecisionMember } from "../types/decisions";
 
 interface MembersButtonProps {
@@ -26,7 +27,6 @@ interface MembersButtonProps {
   currentUserId: string;
   isOrganizer: boolean;
   showVoteStatus?: boolean;
-  inviteCode?: string;
   onMemberChanged?: () => void;
   onLeft?: () => void;
 }
@@ -38,16 +38,13 @@ const MembersButton: React.FC<MembersButtonProps> = ({
   currentUserId,
   isOrganizer,
   showVoteStatus,
-  inviteCode,
   onMemberChanged,
   onLeft,
 }) => {
   const theme = useTheme();
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedMember, setSelectedMember] = useState<DecisionMember | null>(null);
-  const [manageMemberVisible, setManageMemberVisible] = useState(false);
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [modalVisible, setModalVisible]   = useState(false);
+  const [showInvite, setShowInvite]       = useState(false);
+  const [friendIds, setFriendIds]         = useState<Set<string>>(new Set());
   const [sentRequestIds, setSentRequestIds] = useState<Set<string>>(new Set());
   const [sendingRequest, setSendingRequest] = useState<string | null>(null);
 
@@ -62,11 +59,107 @@ const MembersButton: React.FC<MembersButtonProps> = ({
       if (isDemoMode()) return;
       const friends = await fetchFriends(currentUserId);
       setFriendIds(new Set(friends.map((f) => f.friend_id)));
-    } catch (err) {
-      console.error("Error loading friends:", err);
+    } catch {
+      // non-critical
     }
   };
 
+  const truncatedTitle =
+    decisionTitle.length > 25
+      ? decisionTitle.substring(0, 25) + "..."
+      : decisionTitle;
+
+  // ── Leave ──────────────────────────────────────────────────────────────────
+  const handleLeaveDecision = () => {
+    Alert.alert(
+      `Leave "${truncatedTitle}"?`,
+      "You won't be able to rejoin unless invited again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await leaveDecision(decisionId, currentUserId);
+              Toast.show({ type: "success", text1: "Left decision", position: "bottom" });
+              setModalVisible(false);
+              onLeft?.();
+            } catch (err: any) {
+              Toast.show({ type: "error", text1: "Failed to leave", text2: err.message, position: "bottom" });
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // ── Manage member (host long-press) ────────────────────────────────────────
+  const handleMemberLongPress = (member: DecisionMember) => {
+    Alert.alert(
+      member.username || "Member",
+      undefined,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Make Organizer",
+          onPress: () => confirmTransfer(member),
+        },
+        {
+          text: "Remove from decision",
+          style: "destructive",
+          onPress: () => confirmRemove(member),
+        },
+      ]
+    );
+  };
+
+  const confirmRemove = (member: DecisionMember) => {
+    Alert.alert(
+      "Remove member",
+      `Remove ${member.username || "this member"} from "${truncatedTitle}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await removeMember(decisionId, member.user_id);
+              Toast.show({ type: "success", text1: "Member removed", position: "bottom" });
+              onMemberChanged?.();
+            } catch (err: any) {
+              Toast.show({ type: "error", text1: "Failed to remove", text2: err.message, position: "bottom" });
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const confirmTransfer = (member: DecisionMember) => {
+    Alert.alert(
+      "Transfer organizer role",
+      `Make ${member.username || "this member"} the new organizer? You will become a regular member.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Transfer",
+          onPress: async () => {
+            try {
+              await transferOrganizer(decisionId, member.user_id);
+              Toast.show({ type: "success", text1: "Role transferred", position: "bottom" });
+              onMemberChanged?.();
+            } catch (err: any) {
+              Toast.show({ type: "error", text1: "Failed to transfer", text2: err.message, position: "bottom" });
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // ── Add friend ────────────────────────────────────────────────────────────
   const handleAddFriend = async (memberId: string, memberName: string) => {
     setSendingRequest(memberId);
     try {
@@ -76,151 +169,16 @@ const MembersButton: React.FC<MembersButtonProps> = ({
         await sendFriendRequest(currentUserId, memberId);
       }
       setSentRequestIds((prev) => new Set([...prev, memberId]));
-      Toast.show({
-        type: "success",
-        text1: `Friend request sent to ${memberName}!`,
-        position: "bottom",
-      });
+      Toast.show({ type: "success", text1: `Friend request sent to ${memberName}!`, position: "bottom" });
     } catch (err: any) {
-      Toast.show({
-        type: "error",
-        text1: "Failed to send request",
-        text2: err.message,
-        position: "bottom",
-      });
+      Toast.show({ type: "error", text1: "Failed to send request", text2: err.message, position: "bottom" });
     }
     setSendingRequest(null);
   };
 
-  const truncatedTitle =
-    decisionTitle.length > 25
-      ? decisionTitle.substring(0, 25) + "..."
-      : decisionTitle;
-
-  const handleMemberPress = (member: DecisionMember) => {
-    const isCurrentUser = member.user_id === currentUserId;
-    const isMemberOrganizer = member.role === "organizer";
-
-    // If current user taps themselves and they're not the organizer, offer to leave
-    if (isCurrentUser && !isOrganizer) {
-      handleLeaveDecision();
-      return;
-    }
-
-    // If organizer taps another member, show management options
-    if (isOrganizer && !isCurrentUser) {
-      setSelectedMember(member);
-      setManageMemberVisible(true);
-    }
-  };
-
-  const handleLeaveDecision = () => {
-    Alert.alert(
-      `Leave "${truncatedTitle}"?`,
-      "Are you sure you want to leave this decision? You won't be able to rejoin unless invited again.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Leave",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await leaveDecision(decisionId, currentUserId);
-              Toast.show({
-                type: "success",
-                text1: "Left decision",
-                position: "bottom",
-              });
-              setModalVisible(false);
-              onLeft?.();
-            } catch (err: any) {
-              Toast.show({
-                type: "error",
-                text1: "Failed to leave",
-                text2: err.message,
-                position: "bottom",
-              });
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleRemoveMember = async () => {
-    if (!selectedMember) return;
-
-    Alert.alert(
-      "Remove Member",
-      `Are you sure you want to remove ${selectedMember.username || "this member"} from "${truncatedTitle}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await removeMember(decisionId, selectedMember.user_id);
-              Toast.show({
-                type: "success",
-                text1: "Member removed",
-                position: "bottom",
-              });
-              setManageMemberVisible(false);
-              setSelectedMember(null);
-              onMemberChanged?.();
-            } catch (err: any) {
-              Toast.show({
-                type: "error",
-                text1: "Failed to remove member",
-                text2: err.message,
-                position: "bottom",
-              });
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleTransferOrganizer = async () => {
-    if (!selectedMember) return;
-
-    Alert.alert(
-      "Transfer Organizer Role",
-      `Are you sure you want to make ${selectedMember.username || "this member"} the new organizer of "${truncatedTitle}"? You will become a regular member.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Transfer",
-          onPress: async () => {
-            try {
-              await transferOrganizer(decisionId, selectedMember.user_id);
-              Toast.show({
-                type: "success",
-                text1: "Organizer role transferred",
-                position: "bottom",
-              });
-              setManageMemberVisible(false);
-              setSelectedMember(null);
-              onMemberChanged?.();
-            } catch (err: any) {
-              Toast.show({
-                type: "error",
-                text1: "Failed to transfer role",
-                text2: err.message,
-                position: "bottom",
-              });
-            }
-          },
-        },
-      ]
-    );
-  };
-
   return (
     <>
-      {/* Header Button */}
+      {/* ── Header Button ── */}
       <TouchableOpacity
         style={styles.headerButton}
         onPress={() => setModalVisible(true)}
@@ -231,257 +189,161 @@ const MembersButton: React.FC<MembersButtonProps> = ({
         </View>
       </TouchableOpacity>
 
-      {/* Members Modal */}
+      {/* ── Members Modal ── */}
       <Modal
         visible={modalVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setModalVisible(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.overlay}
-          activeOpacity={1}
           onPress={() => setModalVisible(false)}
         >
-          <View
-            style={[
-              styles.modalContainer,
-              { backgroundColor: theme.colors.surface },
-            ]}
-            onStartShouldSetResponder={() => true}
+          <Pressable
+            style={[styles.modalContainer, { backgroundColor: theme.colors.surface }]}
+            onPress={() => {/* absorb — prevent backdrop from firing on inner taps */}}
           >
-            <Text
-              style={[styles.modalTitle, { color: theme.colors.onBackground }]}
-            >
-              Members ({members.length})
-            </Text>
+            {/* ── Header ── */}
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.colors.onBackground }]}>
+                Members
+              </Text>
+              <View style={[styles.memberCount, { backgroundColor: `${theme.colors.primary}20` }]}>
+                <Text style={[styles.memberCountText, { color: theme.colors.primary }]}>
+                  {members.length}
+                </Text>
+              </View>
+            </View>
 
-            <ScrollView style={styles.membersList}>
+            {/* ── Invite button — organizers only ── */}
+            {!!currentUserId && isOrganizer && (
+              <TouchableOpacity
+                style={[styles.inviteRow, { backgroundColor: `${theme.colors.primary}12`, borderColor: `${theme.colors.primary}25` }]}
+                onPress={() => { setModalVisible(false); setShowInvite(true); }}
+                activeOpacity={0.75}
+              >
+                <Icon name="person-add-alt" size={17} color={theme.colors.primary} />
+                <Text style={[styles.inviteRowText, { color: theme.colors.primary }]}>
+                  Invite people
+                </Text>
+                <Icon name="chevron-right" size={18} color={theme.colors.primary} style={styles.inviteChevron} />
+              </TouchableOpacity>
+            )}
+
+            {/* ── Divider ── */}
+            <View style={[styles.divider, { backgroundColor: theme.colors.surfaceVariant }]} />
+
+            {/* ── Member list ── */}
+            <ScrollView style={styles.membersList} showsVerticalScrollIndicator={false}>
               {members.map((member) => {
-                const initial = member.username
+                const isCurrentUser    = member.user_id === currentUserId;
+                const isMemberOrganizer = member.role === "organizer";
+                const canRemove        = isOrganizer && !isCurrentUser;
+                const initial          = member.username
                   ? member.username.charAt(0).toUpperCase()
                   : "?";
-                const isMemberOrganizer = member.role === "organizer";
-                const isCurrentUser = member.user_id === currentUserId;
-                const canTap = (isOrganizer && !isCurrentUser) || (isCurrentUser && !isOrganizer);
 
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={member.id}
-                    style={[
+                    onLongPress={canRemove ? () => handleMemberLongPress(member) : undefined}
+                    delayLongPress={400}
+                    style={({ pressed }) => [
                       styles.memberRow,
                       { backgroundColor: theme.colors.surfaceVariant },
+                      pressed && canRemove && styles.memberRowPressed,
                     ]}
-                    onPress={() => handleMemberPress(member)}
-                    disabled={!canTap}
                   >
-                    <View
-                      style={[
-                        styles.avatar,
-                        {
-                          backgroundColor: isMemberOrganizer
-                            ? theme.colors.primary
-                            : theme.colors.onSurfaceVariant,
-                        },
-                      ]}
-                    >
+                    {/* Avatar */}
+                    <View style={[
+                      styles.avatar,
+                      { backgroundColor: isMemberOrganizer ? theme.colors.primary : "#334155" },
+                    ]}>
                       <Text style={styles.avatarText}>{initial}</Text>
                     </View>
+
+                    {/* Name + role */}
                     <View style={styles.memberInfo}>
-                      <Text
-                        style={[
-                          styles.memberName,
-                          { color: theme.colors.onBackground },
-                        ]}
-                      >
+                      <Text style={[styles.memberName, { color: theme.colors.onBackground }]} numberOfLines={1}>
                         {member.username || "Unknown"}
-                        {isCurrentUser && " (You)"}
+                        {isCurrentUser ? " (You)" : ""}
                       </Text>
                       {isMemberOrganizer && (
-                        <Text
-                          style={[styles.roleTag, { color: theme.colors.primary }]}
-                        >
-                          Host
-                        </Text>
+                        <Text style={[styles.roleTag, { color: theme.colors.primary }]}>Host</Text>
                       )}
                     </View>
+
+                    {/* Vote status (if enabled) */}
                     {showVoteStatus && member.has_voted && (
-                      <Icon name="check-circle" size={20} color="#22c55e" />
+                      <Icon name="check-circle" size={18} color="#22c55e" />
                     )}
+
+                    {/* Add friend */}
                     {!isCurrentUser && !friendIds.has(member.user_id) && !sentRequestIds.has(member.user_id) && (
                       <TouchableOpacity
                         style={[styles.addFriendButton, { backgroundColor: `${theme.colors.primary}15` }]}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleAddFriend(member.user_id, member.username || "this member");
-                        }}
+                        onPress={() => handleAddFriend(member.user_id, member.username || "this member")}
                         disabled={sendingRequest === member.user_id}
+                        hitSlop={6}
                       >
                         {sendingRequest === member.user_id ? (
                           <ActivityIndicator size="small" color={theme.colors.primary} />
                         ) : (
-                          <Icon name="person-add" size={16} color={theme.colors.primary} />
+                          <Icon name="person-add" size={15} color={theme.colors.primary} />
                         )}
                       </TouchableOpacity>
                     )}
                     {!isCurrentUser && sentRequestIds.has(member.user_id) && (
                       <View style={[styles.sentBadge, { backgroundColor: "#22c55e20" }]}>
-                        <Icon name="check" size={14} color="#22c55e" />
+                        <Icon name="check" size={13} color="#22c55e" />
                         <Text style={styles.sentBadgeText}>Sent</Text>
                       </View>
                     )}
-                    {canTap && (
-                      <Icon
-                        name="chevron-right"
-                        size={20}
-                        color={theme.colors.onSurfaceVariant}
-                      />
+
+                    {/* Long-press hint for host */}
+                    {canRemove && (
+                      <Icon name="more-horiz" size={18} color={theme.colors.onSurfaceVariant} style={styles.moreIcon} />
                     )}
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </ScrollView>
 
-            {/* Invite Friends button */}
-            {inviteCode && (
-              <TouchableOpacity
-                style={[
-                  styles.inviteFriendsButton,
-                  { backgroundColor: `${theme.colors.primary}15` },
-                ]}
-                onPress={() => {
-                  setModalVisible(false);
-                  setShowInviteModal(true);
-                }}
-              >
-                <Icon name="person-add" size={20} color={theme.colors.primary} />
-                <Text
-                  style={[styles.inviteFriendsText, { color: theme.colors.primary }]}
-                >
-                  Invite Friends
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Leave button for non-organizers */}
+            {/* ── Leave button (non-hosts) ── */}
             {!isOrganizer && (
               <TouchableOpacity
-                style={[
-                  styles.leaveButton,
-                  { backgroundColor: "rgba(239, 68, 68, 0.1)" },
-                ]}
+                style={[styles.leaveButton, { backgroundColor: "rgba(239,68,68,0.08)" }]}
                 onPress={handleLeaveDecision}
+                activeOpacity={0.75}
               >
-                <Icon name="logout" size={20} color={theme.colors.error} />
-                <Text
-                  style={[styles.leaveButtonText, { color: theme.colors.error }]}
-                >
-                  Leave "{truncatedTitle}"
+                <Icon name="logout" size={18} color={theme.colors.error} />
+                <Text style={[styles.leaveButtonText, { color: theme.colors.error }]}>
+                  Leave decision
                 </Text>
               </TouchableOpacity>
             )}
 
+            {/* ── Close ── */}
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => setModalVisible(false)}
             >
-              <Text
-                style={[
-                  styles.closeButtonText,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
+              <Text style={[styles.closeButtonText, { color: theme.colors.onSurfaceVariant }]}>
                 Close
               </Text>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
-      {/* Manage Member Modal (for organizers) */}
-      <Modal
-        visible={manageMemberVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setManageMemberVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={() => setManageMemberVisible(false)}
-        >
-          <View
-            style={[
-              styles.manageContainer,
-              { backgroundColor: theme.colors.surface },
-            ]}
-          >
-            <Text
-              style={[styles.manageTitle, { color: theme.colors.onBackground }]}
-            >
-              {selectedMember?.username || "Member"}
-            </Text>
-
-            <TouchableOpacity
-              style={[
-                styles.manageButton,
-                { backgroundColor: theme.colors.surfaceVariant },
-              ]}
-              onPress={handleTransferOrganizer}
-            >
-              <Icon name="swap-horiz" size={20} color={theme.colors.primary} />
-              <Text
-                style={[
-                  styles.manageButtonText,
-                  { color: theme.colors.onBackground },
-                ]}
-              >
-                Make Organizer
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.manageButton,
-                { backgroundColor: "rgba(239, 68, 68, 0.1)" },
-              ]}
-              onPress={handleRemoveMember}
-            >
-              <Icon name="person-remove" size={20} color={theme.colors.error} />
-              <Text
-                style={[styles.manageButtonText, { color: theme.colors.error }]}
-              >
-                Remove from "{truncatedTitle}"
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setManageMemberVisible(false)}
-            >
-              <Text
-                style={[
-                  styles.cancelButtonText,
-                  { color: theme.colors.onSurfaceVariant },
-                ]}
-              >
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Invite Friends Modal */}
-      {inviteCode && (
-        <InviteFriendsModal
-          visible={showInviteModal}
-          onClose={() => setShowInviteModal(false)}
+      {/* ── Invite People Modal ── */}
+      {!!currentUserId && (
+        <InvitePeopleModal
+          visible={showInvite}
+          onClose={() => setShowInvite(false)}
           decisionId={decisionId}
-          decisionTitle={decisionTitle}
-          inviteCode={inviteCode}
-          userId={currentUserId}
-          onInvited={onMemberChanged}
+          currentUserId={currentUserId}
         />
       )}
     </>
@@ -509,11 +371,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "700",
-    fontFamily: "Rubik_600SemiBold",
   },
+
+  // ── Overlay / modal ──
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
@@ -521,143 +384,144 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: "100%",
     maxWidth: 340,
-    maxHeight: "70%",
+    maxHeight: "80%",
     borderRadius: 16,
     padding: 20,
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 16,
-    fontFamily: "Rubik_600SemiBold",
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 14,
   },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  memberCount: {
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  memberCountText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  // ── Invite row ──
+  inviteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  inviteRowText: {
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+  },
+  inviteChevron: {
+    marginLeft: "auto",
+  },
+
+  // ── Divider ──
+  divider: {
+    height: 1,
+    marginBottom: 12,
+    opacity: 0.5,
+  },
+
+  // ── Member list ──
   membersList: {
-    maxHeight: 300,
+    maxHeight: 320,
   },
   memberRow: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    padding: 11,
     borderRadius: 10,
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: 6,
+    gap: 11,
+  },
+  memberRowPressed: {
+    opacity: 0.65,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   avatarText: {
     color: "#fff",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    fontFamily: "Rubik_600SemiBold",
   },
   memberInfo: {
     flex: 1,
+    minWidth: 0,
   },
   memberName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "500",
-    fontFamily: "Rubik_500Medium",
   },
   roleTag: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
-    fontFamily: "Rubik_500Medium",
+    marginTop: 1,
   },
   addFriendButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
   },
   sentBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
     gap: 3,
   },
   sentBadgeText: {
     fontSize: 11,
     fontWeight: "600",
     color: "#22c55e",
-    fontFamily: "Rubik_500Medium",
   },
-  inviteFriendsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 8,
+  moreIcon: {
+    marginLeft: 2,
   },
-  inviteFriendsText: {
-    fontSize: 15,
-    fontWeight: "500",
-    fontFamily: "Rubik_500Medium",
-  },
+
+  // ── Leave ──
   leaveButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 14,
+    gap: 10,
+    padding: 13,
     borderRadius: 10,
-    marginTop: 8,
+    marginTop: 10,
   },
   leaveButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "500",
-    fontFamily: "Rubik_500Medium",
   },
+
+  // ── Close ──
   closeButton: {
     padding: 12,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 6,
   },
   closeButtonText: {
     fontSize: 14,
-    fontFamily: "Rubik_400Regular",
-  },
-  manageContainer: {
-    width: "100%",
-    maxWidth: 320,
-    borderRadius: 16,
-    padding: 20,
-    gap: 12,
-  },
-  manageTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    textAlign: "center",
-    marginBottom: 8,
-    fontFamily: "Rubik_600SemiBold",
-  },
-  manageButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    padding: 14,
-    borderRadius: 10,
-  },
-  manageButtonText: {
-    fontSize: 15,
-    fontWeight: "500",
-    fontFamily: "Rubik_500Medium",
-  },
-  cancelButton: {
-    padding: 12,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  cancelButtonText: {
-    fontSize: 14,
-    fontFamily: "Rubik_400Regular",
   },
 });
 

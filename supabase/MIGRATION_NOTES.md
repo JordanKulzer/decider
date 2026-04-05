@@ -1,0 +1,198 @@
+# Migration Notes
+
+Three migration files replace the old 001/002 pair. Apply them in order to a clean database.
+
+---
+
+## Why the old schema was wrong
+
+| Problem | Old schema | Fixed in |
+|---|---|---|
+| `decisions.created_by UUID NOT NULL` — guests can't create | Guest creators have no `auth.users` row | 001 |
+| `decision_members.user_id UUID NOT NULL` — guests can't join | Same | 001 |
+| `options.submitted_by UUID NOT NULL` — guests can't add options | Same | 001 |
+| `votes` table: one-row-per-vote with `UNIQUE(decision_id, user_id, option_id)` — wrong for multi-tap | Quick Mode needs a `count` column, not row-per-vote | 003 |
+| `decisions` has no `mode` column | HomeScreen routes differently per mode | 001 |
+| `decisions` has no `category` column | Quick Mode selects food/activity/trip/other | 001 |
+| `status` check allows 'constraints'/'voting' for quick decisions | Quick Mode only uses 'options'/'locked' | 001 (check constraint is inclusive; the app enforces the narrower set) |
+| `OR true` in decisions SELECT policy | Exposes all decisions to any authenticated user | 001 — removed; invite lookups use SECURITY DEFINER |
+| No SECURITY DEFINER path for guests | Guests can't bypass RLS without service-role credentials | 003 |
+| `votes` shared between modes | Advanced point_allocation vote ≠ quick tap-count vote | 001 renames to `advanced_votes`; 003 adds `quick_votes` |
+
+---
+
+## 001_base_schema.sql
+
+### decisions — dual-creator identity
+
+```sql
+created_by          UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+created_by_guest_id TEXT,
+CONSTRAINT chk_decision_creator
+  CHECK (num_nonnulls(created_by, created_by_guest_id) = 1)
+```
+
+`num_nonnulls(a, b) = 1` is a Postgres built-in that returns the count of non-NULL arguments. This is a true XOR: exactly one must be set. The old schema had `created_by NOT NULL` which made guest creation impossible.
+
+### decision_members — dual-actor identity
+
+```sql
+actor_user_id  UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+actor_guest_id TEXT,
+CONSTRAINT chk_member_actor
+  CHECK (num_nonnulls(actor_user_id, actor_guest_id) = 1)
+```
+
+Two partial unique indexes enforce one-row-per-actor per decision:
+
+```sql
+CREATE UNIQUE INDEX uq_member_user  ON decision_members (decision_id, actor_user_id)
+  WHERE actor_user_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_member_guest ON decision_members (decision_id, actor_guest_id)
+  WHERE actor_guest_id IS NOT NULL;
+```
+
+A normal UNIQUE constraint can't span NULL values correctly in Postgres (two rows with NULL in the same column don't conflict). Partial indexes fix this.
+
+### advanced_votes rename
+
+The old `votes` table is renamed `advanced_votes`. This makes it unambiguous that it serves Advanced Mode point_allocation/forced_ranking ballots. Quick Mode votes live in `quick_votes` (003). Any code in `src/lib/decisions.ts` that references the `votes` table name must be updated.
+
+### voteTotal not stored
+
+`options` has no `vote_total` column. For Quick Mode, the total is computed at read time via `SUM(quick_votes.count)` inside `get_quick_decision_state()`. This keeps the DB in sync automatically — no trigger needed, no possibility of denormalized stale data.
+
+---
+
+## 002_friends.sql
+
+Minor fixes over the old file:
+
+- **Self-request guard**: `CHECK (from_user_id <> to_user_id)` was missing.
+- **Friendships SELECT** narrowed to `WHERE user_id = auth.uid()` only. The old policy exposed `friend_id` rows too, leaking blocked status to the blocked party.
+- **UPDATE WITH CHECK** on friend_requests limits status to `('accepted', 'declined')` — prevents recipients from un-declining a request.
+
+---
+
+## 003_quick_mode.sql
+
+### quick_votes — count model
+
+```sql
+count INTEGER NOT NULL DEFAULT 1 CHECK (count >= 1 AND count <= 5)
+```
+
+One row per (decision × option × actor). Count is always ≥ 1 — zero-count rows are deleted. This matches `VoteCountRecord` in `MockDecisionRepository` exactly:
+
+```
+incrementVote → upsert_quick_vote(delta = +1)
+decrementVote → upsert_quick_vote(delta = -1)
+```
+
+The `FOR UPDATE` lock on the decisions row inside `upsert_quick_vote` serializes concurrent taps from the same actor, preventing the cross-option total from exceeding `MAX_QUICK_VOTES`.
+
+### SECURITY DEFINER functions
+
+All Quick Mode mutations — create, join, add option, vote — route through SECURITY DEFINER functions. These:
+1. Run as the Postgres owner (bypasses RLS).
+2. Validate the guest_id format (`LIKE 'guest_%'`).
+3. Enforce the same business rules as `MockDecisionRepository` (lock check, membership, duplicate title, vote limit).
+4. Are the only way for `anon`-role callers (guests) to mutate data.
+
+`get_quick_decision_state()` is a read function that similarly bypasses RLS so guests can read their own decision after joining. It also auto-locks overdue decisions on read, matching `applyDeadlineIfExpired()` in the mock.
+
+### Guest identity validation
+
+All functions validate guest IDs with `LIKE 'guest_%'`. This matches the prefix generated by `getGuestActor()` in the app. It's not cryptographically secure — it prevents accidental misuse, not a determined attacker. Supabase Anonymous Auth (see below) is the correct fix for real security.
+
+---
+
+## Recommended upgrade: Supabase Anonymous Auth
+
+The XOR identity pattern (`actor_user_id / actor_guest_id`) adds ~30% complexity to every table and every function. The reason it exists is that guests have no `auth.users` row, so `auth.uid()` is NULL for them.
+
+Supabase supports [Anonymous Sign-in](https://supabase.com/docs/guides/auth/auth-anonymous):
+
+```ts
+// resolveDecisionActor.ts — after the upgrade
+const { data: { session } } = await supabase.auth.getSession();
+if (session) {
+  return { kind: "user", userId: session.user.id };
+}
+// No session → create an anonymous one (persisted in AsyncStorage by the client)
+const { data } = await supabase.auth.signInAnonymously();
+return { kind: "user", userId: data.session!.user.id };
+```
+
+After this change:
+- Every actor has a real `auth.uid()`.
+- All `_guest_id` columns and XOR checks can be dropped.
+- SECURITY DEFINER functions become optional (standard RLS works again).
+- Anonymous users can be upgraded to real accounts with `supabase.auth.linkIdentity()`.
+
+The `DecisionRepository` interface and all UI code are unchanged because `DecisionActor` stays the same shape — the `kind: "guest"` branch just never gets created anymore.
+
+---
+
+## App code files that must change when switching from mock to Supabase
+
+| File | Change required |
+|---|---|
+| `src/lib/repositoryProvider.ts` | Swap `MockDecisionRepository` for `SupabaseDecisionRepository` |
+| `src/lib/resolveDecisionActor.ts` | Guest fallback calls `supabase.auth.signInAnonymously()` (or keeps guest_ prefix for now) |
+| `src/lib/decisions.ts` — `fetchUserDecisions` | `user_id` column → `actor_user_id`; advanced_votes table reference if used |
+| `src/lib/decisions.ts` — `addOption` | `submitted_by` column → `submitted_by_user_id`; call `add_quick_option()` RPC for Quick Mode |
+| `src/lib/decisions.ts` — `submitVotes` | Use `advanced_votes` table name; Quick Mode uses `upsert_quick_vote()` RPC |
+| New file: `src/lib/supabaseDecisionRepository.ts` | Implements `DecisionRepository` using `supabase.rpc()` calls to the 003 functions |
+| `src/screens/JoinDecisionScreen.tsx` | Join flow calls `join_quick_decision()` RPC instead of direct `fetchDecisionByInviteCode` + insert |
+
+The `SupabaseDecisionRepository` implementation should use these RPCs exclusively for Quick Mode:
+
+```ts
+// createQuickDecision
+await supabase.rpc('create_quick_decision', {
+  p_title: ..., p_category: ..., p_lock_time: ...,
+  p_user_id: actor.kind === 'user' ? actor.userId : null,
+  p_guest_id: actor.kind === 'guest' ? actor.guestId : null,
+});
+
+// getLiveDecisionState
+await supabase.rpc('get_quick_decision_state', {
+  p_decision_id: decisionId,
+  p_user_id: ...,
+  p_guest_id: ...,
+});
+
+// incrementVote / decrementVote
+await supabase.rpc('upsert_quick_vote', {
+  p_decision_id: ..., p_option_id: ...,
+  p_delta: +1 or -1,
+  p_user_id: ..., p_guest_id: ...,
+});
+```
+
+Realtime subscription in `SupabaseDecisionRepository.subscribeToDecision()`:
+
+```ts
+subscribeToDecision(decisionId, listener) {
+  const channel = supabase
+    .channel(`decision:${decisionId}`)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'quick_votes',
+      filter: `decision_id=eq.${decisionId}`
+    }, listener)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'options',
+      filter: `decision_id=eq.${decisionId}`
+    }, listener)
+    .on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'decisions',
+      filter: `id=eq.${decisionId}`
+    }, listener)
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
+}
+```
+
+Note: Supabase Realtime with RLS requires the subscriber to have SELECT access to the table. Guest (anon-role) subscribers will not receive realtime events unless you switch to Anonymous Auth. Until then, guests polling via a manual interval is a working fallback.

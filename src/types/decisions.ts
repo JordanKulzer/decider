@@ -17,7 +17,7 @@ export interface Decision {
   description: string | null;
   type_label: string | null;
   created_by: string;
-  lock_time: string;
+  closes_at: string;
   status: DecisionStatus;
   voting_mechanism: VotingMechanism;
   max_options: number;
@@ -27,6 +27,8 @@ export interface Decision {
   created_at: string;
   silent_voting: boolean;
   constraint_weights_enabled: boolean;
+  /** "quick" decisions use LiveDecisionScreen; "advanced" decisions use DecisionDetailScreen. */
+  mode?: "quick" | "advanced";
 }
 
 export interface DecisionMember {

@@ -1,19 +1,25 @@
-import { format, formatDistanceToNowStrict, isPast, differenceInMinutes, differenceInHours } from "date-fns";
+import { format, isPast, differenceInMinutes, differenceInHours, differenceInDays } from "date-fns";
 
-export const formatLockTime = (lockTime: string): string => {
-  return format(new Date(lockTime), "MMM d, yyyy 'at' h:mm a");
+export const formatLockTime = (closesAt: string): string => {
+  return format(new Date(closesAt), "MMM d, yyyy 'at' h:mm a");
 };
 
-export const formatCountdown = (lockTime: string): string => {
-  const target = new Date(lockTime);
-  if (isPast(target)) return "Locked";
-  return formatDistanceToNowStrict(target, { addSuffix: true });
+export const formatCountdown = (closesAt: string): string => {
+  const target = new Date(closesAt);
+  if (isPast(target)) return "Closed";
+  const minutesLeft = differenceInMinutes(target, new Date());
+  if (minutesLeft < 60) return `in ${minutesLeft}m`;
+  const hoursLeft = differenceInHours(target, new Date());
+  if (hoursLeft < 24) return `in ${hoursLeft}h`;
+  const daysLeft = differenceInDays(target, new Date());
+  if (daysLeft < 7) return `in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+  return format(target, "MMM d");
 };
 
 export const getCountdownUrgency = (
-  lockTime: string
+  closesAt: string
 ): "normal" | "warning" | "critical" => {
-  const target = new Date(lockTime);
+  const target = new Date(closesAt);
   if (isPast(target)) return "critical";
   const minutesLeft = differenceInMinutes(target, new Date());
   if (minutesLeft <= 5) return "critical";

@@ -15,7 +15,8 @@ import Toast from "react-native-toast-message";
 import * as Clipboard from "expo-clipboard";
 import { isDemoMode } from "../lib/demoMode";
 import { mockGetInvitableFriends, mockJoinDecision } from "../lib/mockData";
-import { getInvitableFriends, inviteFriendToDecision } from "../lib/friends";
+import { getInvitableFriends } from "../lib/friends";
+import { sendDecisionInvite } from "../lib/decisionInvites";
 import type { Friend } from "../types/decisions";
 
 interface InviteFriendsModalProps {
@@ -72,13 +73,13 @@ const InviteFriendsModal: React.FC<InviteFriendsModalProps> = ({
       if (isDemoMode()) {
         await mockJoinDecision(decisionId, friend.friend_id);
       } else {
-        await inviteFriendToDecision(decisionId, friend.friend_id);
+        await sendDecisionInvite(decisionId, friend.friend_id);
       }
 
       setInvitedIds((prev) => new Set([...prev, friend.friend_id]));
       Toast.show({
         type: "success",
-        text1: `Invited ${friend.friend_username}!`,
+        text1: `Invite sent to ${friend.friend_username}`,
         position: "bottom",
       });
       onInvited?.();

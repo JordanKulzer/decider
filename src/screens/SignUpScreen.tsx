@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   Text,
   TouchableOpacity,
@@ -9,12 +9,23 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   View,
-  useColorScheme,
+  SafeAreaView,
 } from "react-native";
-import { TextInput as PaperInput, useTheme } from "react-native-paper";
-import { LinearGradient } from "expo-linear-gradient";
+import { TextInput as PaperInput } from "react-native-paper";
 import { supabase } from "../lib/supabase";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
+
+// ─── Dark input theme ─────────────────────────────────────────────────────────
+const INPUT_THEME = {
+  colors: {
+    primary: "#6366f1",
+    onSurfaceVariant: "#64748b",
+    outline: "#334155",
+    onSurface: "#f1f5f9",
+    surface: "#1e293b",
+    background: "#0f172a",
+  },
+};
 
 const SignUpScreen = ({ navigation }: { navigation: any }) => {
   const [email, setEmail] = useState("");
@@ -22,18 +33,6 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
-
-  const theme = useTheme();
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
-
-  const gradientColors = useMemo(
-    () =>
-      theme.dark
-        ? (["#121212", "#1d1d1d", "#2b2b2d"] as [string, string, ...string[]])
-        : (["#fdfcf9", "#e0e7ff"] as [string, string]),
-    [theme.dark]
-  );
 
   const checkUsernameAvailable = async (
     usernameToCheck: string
@@ -45,7 +44,7 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
         .eq("username", usernameToCheck)
         .maybeSingle();
 
-      if (error) return false;
+      if (error) return true; // can't read table (e.g. RLS) — let the DB enforce uniqueness
       return !data;
     } catch {
       return false;
@@ -116,12 +115,7 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
   };
 
   return (
-    <LinearGradient
-      colors={gradientColors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={{ flex: 1 }}
-    >
+    <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -131,15 +125,12 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={[styles.logoText, { color: theme.colors.primary }]}>
-              Decider
-            </Text>
+            {/* ── Wordmark ── */}
+            <View style={styles.wordmarkBlock}>
+              <Text style={styles.logoText}>Decider</Text>
+            </View>
 
-            <Text
-              style={[styles.title, { color: theme.colors.onBackground }]}
-            >
-              Create your account
-            </Text>
+            <Text style={styles.title}>Create your account</Text>
 
             <PaperInput
               label="Username"
@@ -148,13 +139,13 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
               onChangeText={setUsername}
               autoCapitalize="none"
               style={styles.input}
-              theme={{ colors: { primary: "#2563eb" } }}
+              theme={INPUT_THEME}
               right={
                 username ? (
                   <PaperInput.Icon
                     icon="close"
                     onPress={() => setUsername("")}
-                    color="#2563eb"
+                    color="#6366f1"
                   />
                 ) : null
               }
@@ -168,13 +159,13 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
               keyboardType="email-address"
               autoCapitalize="none"
               style={styles.input}
-              theme={{ colors: { primary: "#2563eb" } }}
+              theme={INPUT_THEME}
               right={
                 email ? (
                   <PaperInput.Icon
                     icon="close"
                     onPress={() => setEmail("")}
-                    color="#2563eb"
+                    color="#6366f1"
                   />
                 ) : null
               }
@@ -187,106 +178,121 @@ const SignUpScreen = ({ navigation }: { navigation: any }) => {
               value={password}
               onChangeText={setPassword}
               style={styles.input}
-              theme={{ colors: { primary: "#2563eb" } }}
+              theme={INPUT_THEME}
               right={
                 password ? (
                   <PaperInput.Icon
                     icon={showPassword ? "eye-off" : "eye"}
                     onPress={() => setShowPassword(!showPassword)}
-                    color="#2563eb"
+                    color="#6366f1"
                   />
                 ) : null
               }
             />
 
             {error ? (
-              <View
-                style={[
-                  styles.errorBox,
-                  { backgroundColor: isDark ? "#331111" : "#ffe6e6" },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: isDark ? "#ff6666" : "#cc0000",
-                    textAlign: "center",
-                  }}
-                >
-                  {error}
-                </Text>
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
 
-            <TouchableOpacity style={styles.button} onPress={handleSignup}>
-              <Text style={styles.buttonText}>Sign Up</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={handleSignup}>
+              <Text style={styles.primaryBtnText}>Sign Up</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.backButton}
+              style={styles.backLink}
               onPress={() => navigation.goBack()}
             >
-              <Icon name="arrow-back" size={16} color="#2563eb" />
-              <Text style={styles.backButtonText}>Back to Login</Text>
+              <Icon name="arrow-back" size={16} color="#94a3b8" />
+              <Text style={styles.backLinkText}>Back to Login</Text>
             </TouchableOpacity>
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
-    </LinearGradient>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+  },
   scrollContent: {
     flexGrow: 1,
-    padding: 24,
-    marginTop: 60,
+    paddingHorizontal: 24,
+    paddingTop: 48,
+    paddingBottom: 40,
+  },
+
+  // ── Wordmark ──
+  wordmarkBlock: {
+    alignItems: "center",
+    marginBottom: 36,
   },
   logoText: {
-    fontSize: 40,
+    fontSize: 38,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
-    textAlign: "center",
-    letterSpacing: -1,
-    marginBottom: 24,
+    color: "#6366f1",
+    letterSpacing: -0.5,
   },
+
+  // ── Form ──
   title: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "700",
-    marginBottom: 10,
     fontFamily: "Rubik_600SemiBold",
+    color: "#f1f5f9",
+    marginBottom: 18,
   },
   input: {
-    marginBottom: 10,
-    backgroundColor: "transparent",
+    marginBottom: 14,
+    backgroundColor: "#1e293b",
   },
-  button: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
+  errorBox: {
+    backgroundColor: "#2d1515",
+    borderWidth: 1,
+    borderColor: "rgba(248,113,113,0.3)",
     borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  errorText: {
+    color: "#f87171",
+    fontSize: 14,
+    fontFamily: "Rubik_400Regular",
+    textAlign: "center",
+  },
+
+  // ── Buttons ──
+  primaryBtn: {
+    backgroundColor: "#6366f1",
+    paddingVertical: 14,
+    borderRadius: 10,
     alignItems: "center",
     marginBottom: 16,
   },
-  buttonText: {
+  primaryBtnText: {
     color: "#fff",
     fontWeight: "600",
     fontSize: 16,
     fontFamily: "Rubik_500Medium",
   },
-  errorBox: {
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  backButton: {
+
+  // ── Back link ──
+  backLink: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
+    paddingVertical: 4,
   },
-  backButtonText: {
-    color: "#2563eb",
+  backLinkText: {
+    color: "#94a3b8",
     fontSize: 14,
-    fontWeight: "500",
-    marginLeft: 6,
     fontFamily: "Rubik_400Regular",
   },
 });

@@ -9,7 +9,6 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   NavigationContainer,
-  DefaultTheme,
   DarkTheme as NavigationDarkTheme,
 } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -27,8 +26,12 @@ import JoinDecisionScreen from "./src/screens/JoinDecisionScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import SubscriptionScreen from "./src/screens/SubscriptionScreen";
 import FriendsScreen from "./src/screens/FriendsScreen";
+import QuickStartScreen from "./src/screens/QuickStartScreen";
+import LiveDecisionScreen from "./src/screens/LiveDecisionScreen";
+import GuestNameScreen from "./src/screens/GuestNameScreen";
 
 import { SubscriptionProvider } from "./src/context/SubscriptionContext";
+import { NotificationProvider } from "./src/context/NotificationContext";
 import HeaderLogo from "./src/components/HeaderLogo";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import { Provider as PaperProvider } from "react-native-paper";
@@ -42,7 +45,7 @@ import {
   Rubik_600SemiBold,
 } from "@expo-google-fonts/rubik";
 import { useFonts } from "expo-font";
-import { enableDemoMode, disableDemoMode, DEMO_USER } from "./src/lib/demoMode";
+import { disableDemoMode } from "./src/lib/demoMode";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -83,7 +86,7 @@ const App: React.FC = () => {
   const [recoveryMode, setRecoveryMode] = useState(false);
 
   const paperTheme = isDarkTheme ? DarkTheme : LightTheme;
-  const navigationTheme = isDarkTheme ? NavigationDarkTheme : DefaultTheme;
+  const navigationTheme = NavigationDarkTheme;
   const toastConfig = getToastConfig(isDarkTheme);
 
   // Load saved theme preference
@@ -246,12 +249,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDemoLogin = () => {
-    enableDemoMode();
-    setUser(DEMO_USER);
-    setLoading(false);
-  };
-
   const linking = {
     prefixes: ["deciderapp://", "https://decider-app.web.app"],
     config: {
@@ -275,7 +272,7 @@ const App: React.FC = () => {
       <View
         style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
       >
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color="#6366f1" />
       </View>
     );
   }
@@ -283,13 +280,12 @@ const App: React.FC = () => {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar
-        barStyle={isDarkTheme ? "light-content" : "dark-content"}
-        backgroundColor={
-          isDarkTheme ? DarkTheme.colors.surface : LightTheme.colors.surface
-        }
+        barStyle="light-content"
+        backgroundColor={DarkTheme.colors.surface}
       />
       <PaperProvider theme={paperTheme}>
         <SubscriptionProvider userId={user?.id || null}>
+        <NotificationProvider>
         <NavigationContainer theme={navigationTheme} linking={linking}>
           <Stack.Navigator
             screenOptions={{
@@ -382,11 +378,6 @@ const App: React.FC = () => {
                     title: null,
                   },
                   {
-                    name: "JoinDecisionScreen",
-                    component: JoinDecisionScreen,
-                    title: "Join Decision",
-                  },
-                  {
                     name: "SubscriptionScreen",
                     component: SubscriptionScreen,
                     title: "Subscription",
@@ -438,12 +429,9 @@ const App: React.FC = () => {
               <>
                 <Stack.Screen
                   name="Login"
+                  component={LoginScreen}
                   options={{ headerShown: false }}
-                >
-                  {(props: any) => (
-                    <LoginScreen {...props} onDemoLogin={handleDemoLogin} />
-                  )}
-                </Stack.Screen>
+                />
                 <Stack.Screen
                   name="Signup"
                   component={SignUpScreen}
@@ -456,8 +444,52 @@ const App: React.FC = () => {
                 />
               </>
             )}
+
+            {/* ── Screens accessible regardless of auth state ─────────────────
+                Guests arrive here from the Login screen. Authenticated users
+                can also navigate here (e.g., JoinDecisionScreen from HomeScreen).
+                Defining them outside the user conditional keeps them reachable
+                from both branches of the navigator.
+            ──────────────────────────────────────────────────────────────── */}
+            <Stack.Screen
+              name="GuestNameScreen"
+              component={GuestNameScreen}
+              options={{ headerShown: false, animation: "slide_from_right" }}
+            />
+            <Stack.Screen
+              name="QuickStartScreen"
+              component={QuickStartScreen}
+              options={{ headerShown: false, animation: "slide_from_right" }}
+            />
+            <Stack.Screen
+              name="LiveDecisionScreen"
+              component={LiveDecisionScreen}
+              options={{ headerShown: false, animation: "slide_from_right" }}
+            />
+            <Stack.Screen
+              name="JoinDecisionScreen"
+              component={JoinDecisionScreen}
+              options={({ navigation }) => ({
+                animation: "slide_from_right",
+                headerTitle: () => <HeaderLogo />,
+                headerTitleAlign: "center" as const,
+                headerStyle: { backgroundColor: paperTheme.colors.surface },
+                headerShadowVisible: false,
+                headerBackTitleVisible: false,
+                headerTintColor: paperTheme.colors.onBackground,
+                headerLeft: () => (
+                  <TouchableOpacity
+                    style={{ height: 30, width: 30, borderRadius: 20, alignItems: "center", justifyContent: "center" }}
+                    onPress={() => navigation.goBack()}
+                  >
+                    <Icon name="arrow-back" size={24} color={paperTheme.colors.onBackground} />
+                  </TouchableOpacity>
+                ),
+              })}
+            />
           </Stack.Navigator>
         </NavigationContainer>
+        </NotificationProvider>
         </SubscriptionProvider>
         <Toast config={toastConfig} position="bottom" bottomOffset={60} />
       </PaperProvider>

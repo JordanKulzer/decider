@@ -1,30 +1,17 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { useTheme } from "react-native-paper";
+import { Text, StyleSheet } from "react-native";
 
-const HeaderLogo = () => {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.container}>
-      <Text style={[styles.logoText, { color: theme.colors.primary }]}>
-        Decider
-      </Text>
-    </View>
-  );
-};
+const HeaderLogo = () => (
+  <Text style={styles.logoText}>Decider</Text>
+);
 
 const styles = StyleSheet.create({
-  container: {
-    justifyContent: "center",
-    alignItems: "center",
-    height: 44,
-  },
   logoText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
     fontFamily: "Rubik_600SemiBold",
     letterSpacing: -0.5,
+    color: "#6366f1",
   },
 });
 
